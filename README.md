@@ -87,7 +87,7 @@ pnpm run build      # 输出到 dist/
 | `stateDir` | `<workspace>/affect` | `state.json` 与 `bonds.json` 的位置 |
 | `maxIntensity` | `2` | 表达强度上限（0 不提情绪，3 允许显性自陈） |
 | `personality` | OCEAN 五维 | 推导基线、增益与时间常数 |
-| `tau` | `a=14 v=55 d=70 mood=900` | **时间常数（分钟），不是半衰期。** 半衰期 = τ·ln2 |
+| `tau` | `a=14 v=55 d=70 mood=900` | **时间常数（分钟），不是半衰期。|
 | `moodCoupling` | `0.25` | 事件进入心境的比例 |
 | `l1.enabled` | `false` | 模型辅助评估。带 1.5 秒超时与每小时令牌桶 |
 | `proactive` | `false` | 驱力驱动的主动开话题，含安静时段 |
