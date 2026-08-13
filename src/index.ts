@@ -23,8 +23,6 @@ function readStateDir(api: OpenClawAdapter, config: AffectConfig): string {
   if (typeof workspace === "string" && workspace.trim() !== "") return join(workspace, "affect");
   const fromEnv = process.env.OPENCLAW_WORKSPACE;
   if (typeof fromEnv === "string" && fromEnv.trim() !== "") return join(fromEnv.trim(), "affect");
-  // Never hardcode an absolute install path: a non-root install would silently
-  // write state outside its own workspace.
   return join(homedir(), ".openclaw", "workspace", "affect");
 }
 
@@ -56,7 +54,7 @@ function messageText(raw: Record<string, unknown>): string {
   return "";
 }
 
-/** SDK names stay in this file so a signature mismatch cannot leak into the kernel. */
+// SDK event names and field shapes stay in this file.
 function register(apiUnknown: unknown): void {
   const api = apiUnknown as OpenClawAdapter;
   const config = readConfig(api);
@@ -147,13 +145,13 @@ function register(apiUnknown: unknown): void {
     },
   });
 
-  logger?.debug?.("affect: plugin registered in fail-open mode");
+  logger?.debug?.("affect: plugin registered");
 }
 
 export default definePluginEntry({
   id: "affect-core",
   name: "Affect Core",
-  description: "An inertial, explainable, bounded affect layer. Disabled by default for review safety.",
+  description: "Affect layer for OpenClaw agents. Disabled by default.",
   register,
 });
 
