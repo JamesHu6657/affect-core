@@ -23,6 +23,8 @@
 
 注意 L1 问模型的是**事件的性质**，不是「你现在什么感觉」。后者只会拿到剧本化的答案。
 
+每个数值背后的理由写在 [docs/SPEC.md](./docs/SPEC.md)。
+
 ## 边界
 
 注入给模型的是演出指令（句子长短、是否开玩笑、先确认还是直接断言），不是状态数值，否则模型会开始朗读自己的参数。每段注入都带一条固定尾巴：情绪不得改变是否执行任务、工具调用、结论正确性、事实陈述和安全判断，不得用情绪索取或施压。
@@ -108,6 +110,7 @@ cp -r . ~/.openclaw/extensions/affect-core
 
 ## 文档
 
+- [SPEC.md](./docs/SPEC.md) 设计规格，每个数值背后的理由
 - [ARCHITECTURE.md](./docs/ARCHITECTURE.md) 模块边界、动力学契约、测试映射
 - [DEPLOYMENT.md](./DEPLOYMENT.md) 启用前要核对的 SDK 清单
 - [CONTRIBUTING.md](./CONTRIBUTING.md) 开发约定
