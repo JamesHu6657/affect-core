@@ -2,7 +2,7 @@
   "id": "affect-core",
   "name": "Affect Core",
   "description": "Affect layer that shapes agent expression only.",
-  "version": "0.2.0-review",
+  "version": "0.2.0",
   "main": "./dist/index.js",
   "activation": {
     "onStartup": true
@@ -62,6 +62,7 @@
       "l1": {
         "type": "object",
         "additionalProperties": false,
+        "description": "Model-assisted appraisal. Requires a model adapter; without one the layer stays on L0 rules.",
         "properties": {
           "enabled": { "type": "boolean", "default": false },
           "maxRatePerHour": { "type": "integer", "minimum": 0, "maximum": 120, "default": 12 },
