@@ -1,16 +1,37 @@
 {
   "name": "openclaw-affect-core",
   "version": "0.2.0-review",
-  "private": true,
   "type": "module",
-  "description": "Local review package for an inertial, explainable, bounded OpenClaw affect layer.",
+  "description": "An inertial, explainable, bounded affect layer for OpenClaw agents. It changes only how the agent speaks, never what it can do.",
+  "license": "MIT",
+  "author": "James Hu (https://github.com/JamesHu6657)",
+  "homepage": "https://github.com/JamesHu6657/affect-core#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JamesHu6657/affect-core.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JamesHu6657/affect-core/issues"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "affect",
+    "emotion",
+    "pad-model",
+    "appraisal",
+    "agent",
+    "llm"
+  ],
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.6.0"
   },
   "main": "./dist/index.js",
   "files": [
     "dist",
-    "openclaw.plugin.json"
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node --test --experimental-strip-types test/*.test.ts",
