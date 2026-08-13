@@ -1,0 +1,49 @@
+name: Bug 报告
+description: 报告一个缺陷或不符合预期的情感行为
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        安全问题请勿走公开 issue，改用 [私密报告通道](https://github.com/JamesHu6657/affect-core/security/advisories/new)。
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 实际行为，以及你期望的行为。
+      placeholder: 连续触发 5 次 praise 后 mood 完全没动。
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 触发的事件序列，或一段最小测试代码。情感行为类问题请附上 `/mood` 的输出。
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: 配置
+      description: 相关的 affect 配置片段，**请去掉任何密钥和私有路径**。
+      render: json
+
+  - type: input
+    id: versions
+    attributes:
+      label: 版本
+      description: affect-core commit、OpenClaw 版本、Node 版本、操作系统。
+      placeholder: affect-core main@abc1234 / OpenClaw 2026.7.1 / Node 22.14 / Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我跑过 `pnpm run check` 并附上了失败输出（如果与测试相关）
+        - label: 这个问题不影响代理执行任务或调用工具（如果影响，请说明，这属于高优先级）
