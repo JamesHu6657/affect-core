@@ -1,7 +1,7 @@
 {
   "id": "affect-core",
   "name": "Affect Core",
-  "description": "An inertial, explainable, bounded affect layer that changes only agent expression.",
+  "description": "Affect layer that shapes agent expression only.",
   "version": "0.2.0-review",
   "main": "./dist/index.js",
   "activation": {
@@ -23,7 +23,7 @@
       "enabled": {
         "type": "boolean",
         "default": false,
-        "description": "Safety default. Enable only after SDK signature review and deployment validation."
+        "description": "Off by default. Enable after verifying the SDK hook names for your OpenClaw version."
       },
       "stateDir": {
         "type": "string",
@@ -50,11 +50,12 @@
       "tau": {
         "type": "object",
         "additionalProperties": false,
+        "description": "Time constants in minutes. Half-life is tau * ln2.",
         "properties": {
-          "v": { "type": "number", "exclusiveMinimum": 0, "default": 55, "description": "Time constant in minutes, not half-life." },
-          "a": { "type": "number", "exclusiveMinimum": 0, "default": 14, "description": "Time constant in minutes, not half-life." },
-          "d": { "type": "number", "exclusiveMinimum": 0, "default": 70, "description": "Time constant in minutes, not half-life." },
-          "mood": { "type": "number", "exclusiveMinimum": 0, "default": 900, "description": "Time constant in minutes, not half-life." }
+          "v": { "type": "number", "exclusiveMinimum": 0, "default": 55 },
+          "a": { "type": "number", "exclusiveMinimum": 0, "default": 14 },
+          "d": { "type": "number", "exclusiveMinimum": 0, "default": 70 },
+          "mood": { "type": "number", "exclusiveMinimum": 0, "default": 900 }
         }
       },
       "moodCoupling": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.25 },
@@ -82,7 +83,7 @@
           "tz": {
             "type": "string",
             "default": "UTC",
-            "description": "IANA time zone name driving quiet hours and the sleep window. Set this to your own zone."
+            "description": "IANA time zone for quiet hours and the sleep window."
           }
         }
       }
