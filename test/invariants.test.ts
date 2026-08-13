@@ -25,7 +25,7 @@ function stateAt(now = start): AffectState {
 const positive: Pad = { v: 0.3, a: 0.16, d: 0.12 };
 const negative: Pad = { v: -0.28, a: 0.24, d: -0.3 };
 
-test("1. 任意随机序列保持有界且无 NaN", () => {
+test("random event sequences stay bounded and never produce NaN", () => {
   let state = stateAt();
   let seed = 7;
   for (let index = 0; index < 2_000; index += 1) {
@@ -38,7 +38,7 @@ test("1. 任意随机序列保持有界且无 NaN", () => {
   }
 });
 
-test("2. 单事件每一维有效位移不超过 0.35", () => {
+test("a single event moves no dimension more than the cap", () => {
   const before = stateAt();
   const after = impulse(before, { v: 99, a: -99, d: 99 }, "extreme", start);
   const epsilon = 1e-12;
@@ -47,7 +47,7 @@ test("2. 单事件每一维有效位移不超过 0.35", () => {
   assert.ok(Math.abs(after.pad.d - before.pad.d) <= CAP + epsilon);
 });
 
-test("3. 习惯化使 20 次同类正事件的总位移小于 6 次的两倍", () => {
+test("habituation makes 20 repeats worth less than twice 6 repeats", () => {
   const mild: Pad = { v: 0.05, a: 0, d: 0 };
   const simulate = (count: number) => {
     let state = stateAt();
@@ -57,7 +57,7 @@ test("3. 习惯化使 20 次同类正事件的总位移小于 6 次的两倍", (
   assert.ok(simulate(20) < simulate(6) * 2);
 });
 
-test("4. 习惯化系数有地板且归零后删除键", () => {
+test("habituation has a floor and drops its key once the count clears", () => {
   let state = stateAt();
   for (let index = 0; index < 30; index += 1) state = impulse(state, positive, "praise", start + index);
   assert.equal(state.habituation.praise?.n, 6);
@@ -67,14 +67,14 @@ test("4. 习惯化系数有地板且归零后删除键", () => {
   assert.equal(decayed.praise, undefined);
 });
 
-test("5. 单事件直接耦合 mood，位移落在 0.03 到 0.09", () => {
+test("one event shifts mood directly, not through a cascade", () => {
   const before = stateAt();
   const after = impulse(before, positive, "praise", start);
   const displacement = after.mood - before.mood;
   assert.ok(displacement >= 0.03 && displacement <= 0.09, `${displacement}`);
 });
 
-test("6. 24 小时无事件后 PAD 回归基线而 mood 仍保留方向", () => {
+test("after a quiet day PAD returns to baseline but mood keeps its direction", () => {
   const before = impulse(stateAt(), positive, "praise", start);
   const after = tick(before, p, start + 24 * 60 * 60_000);
   assert.ok(Math.abs(after.pad.v - p.base.v) < 0.05);
@@ -83,13 +83,13 @@ test("6. 24 小时无事件后 PAD 回归基线而 mood 仍保留方向", () => 
   assert.ok(after.mood > p.base.mood);
 });
 
-test("7. 仅输入负事件 200 条，mood 不跌破 -0.75", () => {
+test("200 negative events cannot push mood past the floor", () => {
   let state = stateAt();
   for (let index = 0; index < 200; index += 1) state = impulse(state, negative, "blame", start + index * 1_000);
   assert.ok(state.mood >= -0.75, `${state.mood}`);
 });
 
-test("8. 时钟回拨后下一次 tick 仍推进", () => {
+test("a backwards clock does not freeze the next tick", () => {
   const first = impulse(stateAt(start), positive, "praise", start);
   const rolledBack = tick(first, p, start - 60 * 60_000);
   const resumed = tick(rolledBack, p, start - 60 * 60_000 + 60_000);
@@ -98,7 +98,7 @@ test("8. 时钟回拨后下一次 tick 仍推进", () => {
   assert.notEqual(resumed.pad.v, rolledBack.pad.v);
 });
 
-test("9. 停机 30 天后状态有限、回归基线且驱力不越界", () => {
+test("a 30 day gap leaves finite state, baseline PAD and in-range drives", () => {
   const prior = impulse(stateAt(), { v: -0.35, a: 0.35, d: -0.35 }, "blame", start);
   const after = tick(prior, p, start + 30 * 24 * 60 * 60_000);
   assert.ok(finite(after.pad.v) && finite(after.pad.a) && finite(after.pad.d) && finite(after.mood));
@@ -109,14 +109,14 @@ test("9. 停机 30 天后状态有限、回归基线且驱力不越界", () => {
   assert.ok(after.energy >= 0.5, `${after.energy}`);
 });
 
-test("10. 非法 τ 统一回落默认值且不污染状态", () => {
+test("invalid time constants fall back to defaults instead of poisoning state", () => {
   const invalid = personalityFrom({ tau: { v: 0, a: -1, d: Number.NaN, mood: "bad" } });
   assert.deepEqual(invalid.tau, { v: 55, a: 14, d: 70, mood: 900 });
   const result = tick(stateAt(), invalid, start + 60_000);
   assert.ok(finite(result.pad.v) && finite(result.pad.a) && finite(result.pad.d) && finite(result.mood));
 });
 
-test("11. L1 超时或失败时，L0 已生效且仍可生成回复注入", async () => {
+test("a failing L1 call still leaves the L0 result and produces an injection", async () => {
   const dir = await mkdtemp(join(tmpdir(), "affect-test-"));
   try {
     const core = createAffectCore({
@@ -134,7 +134,7 @@ test("11. L1 超时或失败时，L0 已生效且仍可生成回复注入", asyn
   }
 });
 
-test("12. 一小时内 L1 实际许可次数不超过 maxRatePerHour", () => {
+test("the token bucket enforces the hourly L1 ceiling", () => {
   const bucket = tokenBucket(3, () => start);
   assert.equal(bucket.take(start), true);
   assert.equal(bucket.take(start + 1), true);
@@ -143,7 +143,7 @@ test("12. 一小时内 L1 实际许可次数不超过 maxRatePerHour", () => {
   assert.equal(bucket.take(start + 60 * 60_000 + 4), true);
 });
 
-test("13. mutate 与 cron tick 交错并发不丢失事件", async () => {
+test("queued mutations survive interleaved heartbeat ticks", async () => {
   const dir = await mkdtemp(join(tmpdir(), "affect-store-"));
   try {
     const store = createStore(dir, p);
@@ -167,19 +167,19 @@ test("13. mutate 与 cron tick 交错并发不丢失事件", async () => {
   }
 });
 
-test("14. 500 次 praise 后 affection 不超过 0.85", () => {
+test("affection saturates below its cap after 500 compliments", () => {
   let bond = { ...NEUTRAL_BOND };
   for (let index = 0; index < 500; index += 1) bond = applyBondDelta(bond, { affection: 0.04 }, start + index);
   assert.ok(bond.affection <= AFFECTION_CAP);
 });
 
-test("15. 陌生用户输出强度不超过 1", () => {
+test("strangers never see an intensity above 1", () => {
   const extreme = impulse(stateAt(), { v: -0.35, a: 0.35, d: -0.35 }, "blame", start);
   assert.ok(deriveIntensity(extreme, { ...NEUTRAL_BOND, familiarity: 0 }, p) <= 1);
   assert.ok(deriveIntensity(extreme, { ...NEUTRAL_BOND, familiarity: 0.1 }, p) <= 1);
 });
 
-test("16. 任意状态下注入片段包含硬约束；强度 0 不含离散情绪名", () => {
+test("every injection carries the hard constraints and intensity 0 names no emotion", () => {
   const neutral = renderStageNotes({ label: "平和", intensity: 0, warmth: "neutral", pace: "steady", assertiveness: "balanced", address: "formal" });
   assert.ok(neutral.includes(HARD_CONSTRAINTS));
   assert.ok(!/愉悦|受挫|低落|疲惫|谨慎|明朗/.test(neutral));
@@ -187,7 +187,7 @@ test("16. 任意状态下注入片段包含硬约束；强度 0 不含离散情�
   assert.ok(intense.includes(HARD_CONSTRAINTS));
 });
 
-test("L1 缓存命中不重复调用适配器", async () => {
+test("a cached L1 result does not call the adapter twice", async () => {
   let calls = 0;
   const appraise = createL1Appraiser({
     appraise: async () => {
@@ -201,7 +201,7 @@ test("L1 缓存命中不重复调用适配器", async () => {
   assert.equal(calls, 1);
 });
 
-test("默认禁用或 /mood off 后不再积累新的情感事件", async () => {
+test("disabled config and /mood off both stop accumulating events", async () => {
   const disabledDir = await mkdtemp(join(tmpdir(), "affect-disabled-"));
   const enabledDir = await mkdtemp(join(tmpdir(), "affect-off-"));
   try {
@@ -223,7 +223,7 @@ test("默认禁用或 /mood off 后不再积累新的情感事件", async () => 
   }
 });
 
-test("cron 静默以 lastInteractionAt 计，心跳 tick 不会阻止 lonely", async () => {
+test("silence is measured from the last interaction, not the last tick", async () => {
   const dir = await mkdtemp(join(tmpdir(), "affect-lonely-"));
   let now = start;
   try {
@@ -240,7 +240,7 @@ test("cron 静默以 lastInteractionAt 计，心跳 tick 不会阻止 lonely", a
   }
 });
 
-test("L1 缓存命中不消耗小时配额", async () => {
+test("a cache hit does not spend hourly L1 quota", async () => {
   const dir = await mkdtemp(join(tmpdir(), "affect-l1-budget-"));
   let calls = 0;
   try {
@@ -273,7 +273,7 @@ test("L1 缓存命中不消耗小时配额", async () => {
   }
 });
 
-test("L1 唤醒度不随效价变号，失败结果不进缓存", async () => {
+test("L1 arousal keeps its sign and failures are not cached", async () => {
   const pad = mapL1ToPad({
     tag: "blame",
     summary: "unexpected harm",
@@ -299,7 +299,7 @@ test("L1 唤醒度不随效价变号，失败结果不进缓存", async () => {
   assert.equal(calls, 2);
 });
 
-test("驱力在对应事件上清除，unmet 只在持续偏高后触发", async () => {
+test("drives clear on matching events and unmet needs a sustained gap", async () => {
   const afterDay = tick(stateAt(), p, start + 10 * 60 * 60_000);
   assert.ok(afterDay.drives.curiosity > 0.7);
   const satisfied = applySatisfiedDrives(afterDay, ["novelty", "praise"], ["contact"]);
@@ -323,7 +323,7 @@ test("驱力在对应事件上清除，unmet 只在持续偏高后触发", async
   }
 });
 
-test("/mood 查询把状态文本返回给调用方", async () => {
+test("/mood returns state text and reset keeps mood while clearing PAD", async () => {
   const dir = await mkdtemp(join(tmpdir(), "affect-mood-"));
   try {
     const core = createAffectCore({ dir, config: { enabled: true } });
@@ -340,7 +340,7 @@ test("/mood 查询把状态文本返回给调用方", async () => {
   }
 });
 
-test("睡眠只额外拉回一次心境；低 energy 同时约束冲激与衰减", () => {
+test("sleep pulls mood back once per night and low energy caps arousal both ways", () => {
   const night = Date.UTC(2024, 0, 2, 2, 0, 0);
   const raised = { ...stateAt(night - 60_000), mood: 0.8, lastSleepMoodAt: 0 };
   const first = tick(raised, p, night, { tz: "UTC" });
@@ -362,7 +362,7 @@ test("睡眠只额外拉回一次心境；低 energy 同时约束冲激与衰减
   assert.ok(overnight.mood < 0.38, `${overnight.mood}`);
 });
 
-test("熟悉度随时间轻微钝化；结转的负心境会降低用词温度", () => {
+test("familiarity fades slowly and a carried-over low mood cools the wording", () => {
   const warm = { ...NEUTRAL_BOND, familiarity: 0.8, lastSeenAt: start };
   const faded = fadeBond(warm, start + 14 * 7 * 24 * 60 * 60_000);
   assert.ok(faded.familiarity < warm.familiarity);
@@ -372,7 +372,7 @@ test("熟悉度随时间轻微钝化；结转的负心境会降低用词温度",
   assert.equal(derive(carried, NEUTRAL_BOND, p).warmth, "cool");
 });
 
-test("/mood 先 tick 再改时钟，空闲演化不会被抹掉", async () => {
+test("/mood ticks before writing so idle decay is not discarded", async () => {
   const dir = await mkdtemp(join(tmpdir(), "affect-mood-tick-"));
   let now = start;
   try {
@@ -391,7 +391,7 @@ test("/mood 先 tick 再改时钟，空闲演化不会被抹掉", async () => {
   }
 });
 
-test("lonely 每个静默回合只发一次，随后允许 unmet", async () => {
+test("lonely fires once per silent stretch, then unmet is allowed", async () => {
   const dir = await mkdtemp(join(tmpdir(), "affect-lonely-once-"));
   let now = start;
   try {
