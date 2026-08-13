@@ -37,25 +37,39 @@
 
 任何一环抛错都降级为不注入，代理照常干活。情感层是装饰性子系统，它把主功能拖挂比它自己算错严重一个量级。
 
-## 状态
+## 要求
 
-情感内核（动力学、存储、评估、关系、表达）已完成，27 项测试覆盖，其中 16 项是验收不变量。
+- OpenClaw 2026.7.1 以上
+- Node 22.6 以上（用到 `--experimental-strip-types`）
+- pnpm
 
-OpenClaw SDK 接线是**实验性的**：入站消息事件名、提示注入的返回字段、命令注册签名需要按你所用版本的 `.d.ts` 核对。这部分全部集中在 `src/index.ts`，内核是不依赖 OpenClaw 的纯 TypeScript，可以脱离网关跑测试。装上不会自动生效，先读 [DEPLOYMENT.md](./DEPLOYMENT.md)。
+## 已知边界
+
+内核（动力学、存储、评估、关系、表达）有 27 项测试覆盖，其中 16 项是验收不变量。这部分是不依赖 OpenClaw 的纯 TypeScript，可以脱离网关跑。
+
+下面两件事在用之前要知道：
+
+**钩子名只在 OpenClaw 2026.7.1-2 上核对过。** 已确认的是 `before_tool_call` 和 `after_tool_call`；入站消息事件名、前置注入钩子的返回字段、命令注册签名都还需要按你自己那版的 `.d.ts` 对一遍。这些名字全部集中在 `src/index.ts`，猜错也只需要改那一个文件，具体清单在 [DEPLOYMENT.md](./DEPLOYMENT.md)。
+
+**L1 还没有通用的模型适配器。** `createAffectCore` 接受一个 `l1` 适配器参数，但插件入口目前没有接线到 OpenClaw 的模型调用上。也就是说光在配置里打开 `l1.enabled` 不会真的调模型，只会继续用 L0 规则表。L0 单独用已经够了，L1 是精度上的锦上添花。
 
 ## 安装
-
-Node 22.6+ 和 pnpm。
 
 ```bash
 git clone https://github.com/JamesHu6657/affect-core.git
 cd affect-core
 pnpm install
 pnpm run check    # 类型检查 + 测试
-pnpm run build
+pnpm run build    # 输出到 dist/
 ```
 
-然后把目录放进 OpenClaw 的扩展根目录（默认 `~/.openclaw/extensions/affect-core`），在配置里显式启用。
+然后把整个目录拷到 OpenClaw 的扩展根目录：
+
+```bash
+cp -r . ~/.openclaw/extensions/affect-core
+```
+
+`src/openclaw-sdk-shim.d.ts` 只是让内核能脱离网关编译的最小声明，不是真的 SDK。要正式跑就换成你那版的 `openclaw/plugin-sdk` 依赖。
 
 ## 配置
 
@@ -94,7 +108,7 @@ pnpm run build
 
 ## 文档
 
-- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) 模块边界、动力学契约、验收映射
+- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) 模块边界、动力学契约、测试映射
 - [DEPLOYMENT.md](./DEPLOYMENT.md) 启用前要核对的 SDK 清单
 - [CONTRIBUTING.md](./CONTRIBUTING.md) 开发约定
 - [CHANGELOG.md](./CHANGELOG.md)
