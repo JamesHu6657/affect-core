@@ -1,0 +1,34 @@
+{
+  "name": "openclaw-affect-core",
+  "version": "0.2.0-review",
+  "private": true,
+  "type": "module",
+  "description": "Local review package for an inertial, explainable, bounded OpenClaw affect layer.",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "openclaw.plugin.json"
+  ],
+  "scripts": {
+    "test": "node --test --experimental-strip-types test/*.test.ts",
+    "test:watch": "node --test --watch --experimental-strip-types test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "check": "npm run typecheck && npm run test"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.23"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.2"
+  }
+}

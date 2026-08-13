@@ -1,0 +1,86 @@
+{
+  "id": "affect-core",
+  "name": "Affect Core",
+  "description": "An inertial, explainable, bounded affect layer that changes only agent expression.",
+  "version": "0.2.0-review",
+  "main": "./dist/index.js",
+  "activation": {
+    "onStartup": true
+  },
+  "openclaw": {
+    "minVersion": "2026.7.1",
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.23"
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Review safety default. Enable only after SDK signature review and deployment validation."
+      },
+      "stateDir": {
+        "type": "string",
+        "description": "Directory for state.json and bonds.json. Defaults to <workspace>/affect."
+      },
+      "maxIntensity": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3,
+        "default": 2
+      },
+      "personality": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "openness": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7 },
+          "conscientiousness": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.8 },
+          "extraversion": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.3 },
+          "agreeableness": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.75 },
+          "neuroticism": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.35 }
+        }
+      },
+      "tau": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "v": { "type": "number", "exclusiveMinimum": 0, "default": 55, "description": "Time constant in minutes, not half-life." },
+          "a": { "type": "number", "exclusiveMinimum": 0, "default": 14, "description": "Time constant in minutes, not half-life." },
+          "d": { "type": "number", "exclusiveMinimum": 0, "default": 70, "description": "Time constant in minutes, not half-life." },
+          "mood": { "type": "number", "exclusiveMinimum": 0, "default": 900, "description": "Time constant in minutes, not half-life." }
+        }
+      },
+      "moodCoupling": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.25 },
+      "l1": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "maxRatePerHour": { "type": "integer", "minimum": 0, "maximum": 120, "default": 12 },
+          "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 5000, "default": 1500 }
+        }
+      },
+      "proactive": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "quietHours": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+            "minItems": 2,
+            "maxItems": 2,
+            "default": ["23:30", "08:00"]
+          },
+          "tz": { "type": "string", "default": "Asia/Singapore" }
+        }
+      }
+    }
+  }
+}
