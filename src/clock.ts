@@ -41,12 +41,11 @@ function parts(now: number, timeZone: string): CivilTime {
     };
     if (Object.values(civil).every(Number.isFinite)) return civil;
   } catch {
-    // Invalid IANA names fall back to UTC so tick() cannot throw on a bad config.
+    // Bad IANA names fall back to UTC so tick() cannot throw.
   }
   return timeZone === FALLBACK_TZ ? utcParts(now) : parts(now, FALLBACK_TZ);
 }
 
-/** Deployment-neutral default: callers configure `proactive.tz` for local behaviour. */
 export function resolveTimeZone(value: unknown, fallback = FALLBACK_TZ): string {
   if (typeof value !== "string" || value.trim() === "") return fallback;
   try {
