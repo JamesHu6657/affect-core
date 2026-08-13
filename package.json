@@ -1,6 +1,6 @@
 {
   "name": "openclaw-affect-core",
-  "version": "0.2.0-review",
+  "version": "0.2.0",
   "type": "module",
   "description": "Affect layer for OpenClaw agents: PAD state, appraisal, and expression shaping.",
   "license": "MIT",
