@@ -1,67 +1,65 @@
 # affect-core
 
-**一个给 [OpenClaw](https://docs.openclaw.ai) 代理用的情感层：有惯性、可解释、有边界。它只改变代理说话的方式，不改变它做事的能力。**
-
-> An inertial, explainable, bounded affect layer for OpenClaw agents. It shapes wording, pacing, assertiveness and address, and never touches task execution, tool calls, factual correctness or safety judgement.
+给 OpenClaw 代理加一层情感状态：有惯性、可解释、有边界。它影响代理的措辞、节奏和称呼，不影响它能做什么。
 
 [![CI](https://github.com/JamesHu6657/affect-core/actions/workflows/ci.yml/badge.svg)](https://github.com/JamesHu6657/affect-core/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-![Node](https://img.shields.io/badge/node-%3E%3D22-informational)
 
----
+## 原理
 
-## 这是什么
+情绪用 PAD 三维连续量表示（愉悦度 / 唤醒度 / 支配感），区间 `[-1, 1]`，随时间指数回归到人格基线。事件给这三维一个冲激，然后衰减回去。
 
-大多数「AI 情感系统」失败在同一个地方：把情感做成了台词表。收到夸奖回一句「我好开心呀」，下一轮清零。那不是情感，是条件反射。
+三层时间尺度各自独立：
 
-真情感的判据只有一条：**它有惯性**。半小时前发生的事，现在还在影响语气。
+- **情绪**，时间常数 14–70 分钟，一次对话内的起伏
+- **心境**，15 小时，跨会话的底色。由事件直接驱动，不是对情绪做低通滤波。后者慢的一层会被快的一层的衰减吃掉，单事件位移只剩 0.018
+- **人格**，配置项（OCEAN 五维），决定基线、增益和衰减速度
 
-affect-core 用连续的 PAD 三维状态（愉悦度 / 唤醒度 / 支配感）加三层独立时间尺度实现这件事：
+另外两个状态：`energy` 给唤醒度设动态上限（`a ≤ 0.15 + 0.85 × energy`，累了不是难过，是兴奋不起来）；`bond` 按用户累积熟悉度、亲密度和信任，决定称呼和表达强度的上限。
 
-| 层 | 驱动源 | 时间常数 | 表现 |
-|---|---|---|---|
-| 人格 | 配置（OCEAN 五维） | 手动 | 决定基线、增益与衰减速度 |
-| 情绪 | 事件冲激 | 14 – 70 分钟 | 单次对话内的起伏 |
-| 心境 | 事件直接耦合 | 15 小时 | 跨会话、跨昼夜的底色 |
-| 资源 energy | 时长与本地时钟 | 睡眠重置 | 给唤醒度设动态上限 |
-| 关系 bond | 按用户累积 | 数周 | 称呼亲密度与表达强度上限 |
+离散情绪名不存储，从 PAD 加最近事件实时派生。所以同一个低落可以是委屈也可以是疲惫，取决于成因。
 
-离散情绪名（委屈、挫败、寂寞）**不存储**，而是从 PAD 加最近事件实时派生。所以「同一个低落」可以既是委屈也是疲惫，取决于成因。
+事件评估分两级。L0 是确定性规则表（被夸、被指责、工具连续失败、只回一个「嗯」、静默六小时……），零成本，每条消息都跑，结果先写入。L1 可选，让模型对事件输出结构化评估（可欲性、期望度、归因、可控性），带 1.5 秒超时和每小时令牌桶，超时或抛错就只用 L0。
 
-## 设计原则
+注意 L1 问模型的是**事件的性质**，不是「你现在什么感觉」。后者只会拿到剧本化的答案。
 
-1. **情感是状态，不是台词。** 状态落在磁盘上，跨会话、跨渠道存活。
-2. **三层时间尺度必须真的分离。** 用一层去低通滤另一层，慢的那层会被衰减吃掉（这是 v0.1 的真实缺陷，见 [CHANGELOG](./CHANGELOG.md)）。
-3. **情绪只改表达，不改能力。** 心情差不许拒活、不许降低工具可用性、不许省略事实。
-4. **可解释。** 每次状态变化留一条生效后的增量记录，`/mood` 能问出「为什么」。
-5. **有界，且永不阻塞主路径。** 单事件封顶、同类递减、螺旋抑制、时钟异常吸收；任何一环抛错都降级为「无情感注入」，代理照常干活。
+## 边界
+
+注入给模型的是演出指令（句子长短、是否开玩笑、先确认还是直接断言），不是状态数值，否则模型会开始朗读自己的参数。每段注入都带一条固定尾巴：情绪不得改变是否执行任务、工具调用、结论正确性、事实陈述和安全判断，不得用情绪索取或施压。
+
+其他几条硬性的：
+
+- 这是个数值状态机加一段提示词注入，不主张任何主观体验，也不声称拥有人类身份
+- `familiarity = 0` 的用户看不到强度 2 以上的情绪自陈
+- `affection` 上限 0.85 且正向增量随亲密度饱和，避免长期高频夸奖养出谄媚
+- 单事件封顶 0.35，同类事件增益按 `0.6^n` 递减（n 封顶 6），心境跌破 -0.5 后负向增量减半
+- `/mood off` 即时关闭整层，配置里 `enabled` 默认就是 `false`
+
+任何一环抛错都降级为不注入，代理照常干活。情感层是装饰性子系统，它把主功能拖挂比它自己算错严重一个量级。
 
 ## 状态
 
-<table>
-<tr><td>情感内核（动力学、存储、评估、关系、表达）</td><td>已实现，27 项自动化测试覆盖，其中 16 项是规格验收不变量</td></tr>
-<tr><td>OpenClaw SDK 接线</td><td><b>实验性。</b>入站消息事件名、提示注入返回字段、cron 与命令注册签名需按你所用 OpenClaw 版本的 <code>.d.ts</code> 核对</td></tr>
-</table>
+情感内核（动力学、存储、评估、关系、表达）已完成，27 项测试覆盖，其中 16 项是验收不变量。
 
-这类不确定性被刻意**限制在 `src/index.ts` 一个文件里**，核心逻辑是不依赖 OpenClaw 的纯 TypeScript，可以脱离网关直接测试。插件清单默认 `enabled: false`，装上不会自动生效。
+OpenClaw SDK 接线是**实验性的**：入站消息事件名、提示注入的返回字段、命令注册签名需要按你所用版本的 `.d.ts` 核对。这部分全部集中在 `src/index.ts`，内核是不依赖 OpenClaw 的纯 TypeScript，可以脱离网关跑测试。装上不会自动生效，先读 [DEPLOYMENT.md](./DEPLOYMENT.md)。
 
 ## 安装
 
-需要 Node 22+ 与 pnpm。
+Node 22.6+ 和 pnpm。
 
 ```bash
 git clone https://github.com/JamesHu6657/affect-core.git
 cd affect-core
 pnpm install
-pnpm run check      # 类型检查 + 27 项测试
-pnpm run build      # 输出到 dist/
+pnpm run check    # 类型检查 + 测试
+pnpm run build
 ```
 
-然后把目录放进 OpenClaw 的扩展根目录（默认 `~/.openclaw/extensions/affect-core`），在配置中显式启用。**先读 [DEPLOYMENT.md](./DEPLOYMENT.md)**，里面有部署前必须完成的 SDK 核对清单。
+然后把目录放进 OpenClaw 的扩展根目录（默认 `~/.openclaw/extensions/affect-core`），在配置里显式启用。
 
 ## 配置
 
-完整 schema 在 [`openclaw.plugin.json`](./openclaw.plugin.json)。推荐的首次启用配置（L1 与主动消息都关着）：
+完整 schema 见 [`openclaw.plugin.json`](./openclaw.plugin.json)。首次启用建议把 L1 和主动消息都关着：
 
 ```json
 {
@@ -81,49 +79,26 @@ pnpm run build      # 输出到 dist/
 }
 ```
 
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `enabled` | `false` | 安全默认。关闭时不积累事件也不注入 |
-| `stateDir` | `<workspace>/affect` | `state.json` 与 `bonds.json` 的位置 |
-| `maxIntensity` | `2` | 表达强度上限（0 不提情绪，3 允许显性自陈） |
-| `personality` | OCEAN 五维 | 推导基线、增益与时间常数 |
-| `tau` | `a=14 v=55 d=70 mood=900` | 时间常数（分钟），不是半衰期。|
-| `moodCoupling` | `0.25` | 事件进入心境的比例 |
-| `l1.enabled` | `false` | 模型辅助评估。带 1.5 秒超时与每小时令牌桶 |
-| `proactive` | `false` | 驱力驱动的主动开话题，含安静时段 |
-| `proactive.tz` | `UTC` | IANA 时区，决定安静时段与睡眠窗口 |
+几个容易踩的：
 
-## `/mood` 命令
+- `tau` 是**时间常数**（分钟），不是半衰期。半衰期 = τ·ln2 ≈ 0.69τ
+- `proactive.tz` 默认 `UTC`。安静时段和睡眠窗口要按本地时间算就改成自己的 IANA 时区
+- `maxIntensity` 0 表示完全不提情绪，3 允许一句显性自陈
+- `stateDir` 不填则用 `<workspace>/affect`
 
-- `/mood` 查询当前表达状态与成因
-- `/mood reset` 归零 PAD，**保留心境**（重开对话，但它今天确实心情不太好）
-- `/mood off` / `/mood on` 关闭或打开整层
+调参顺序：先定 baseline，再定 τ，最后才碰事件增量表。反过来会陷进去。
 
-## 边界与伦理
+## `/mood`
 
-<!-- 这一节不是免责声明模板，是这个项目的实际行为约束。 -->
-
-- **不声称意识或感受。** 这是一个数值状态机加一段提示词注入。它模拟情感的**动力学**，不主张任何主观体验。
-- **不许拿情绪推活。** 注入片段里带一条固定硬约束尾巴：情绪不得改变是否执行任务、工具调用、结论正确性、事实陈述与安全判断，不得用情绪索取、施压或指责。
-- **不冒充人类。** 不声称拥有人类身体或身份。
-- **随时可关。** `/mood off` 即时生效，配置里 `enabled: false` 是默认值。
-- **对陌生人克制。** `familiarity = 0` 的用户永远看不到强度 2 以上的情绪自陈。
-- **反谄媚。** `affection` 硬上限 0.85 且正向增量随亲密度饱和，防止长期高频夸奖把代理养成舔狗。
-
-如果你打算用它做拟人陪伴产品，请自己评估当地关于情感型 AI 的合规要求，并对使用者说清这是软件。
+查询当前状态和成因；`/mood reset` 归零 PAD 但保留心境（重开对话，但它今天确实心情不太好）；`/mood off` 和 `/mood on` 关闭或打开。
 
 ## 文档
 
-- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) 模块边界、动力学契约、三重闸门、验收映射
-- [REVIEW.md](./docs/REVIEW.md) 代码审查记录与已修问题
-- [DEPLOYMENT.md](./DEPLOYMENT.md) 部署前核对清单
-- [CONTRIBUTING.md](./CONTRIBUTING.md) 开发约定与不变量要求
-- [CHANGELOG.md](./CHANGELOG.md) 版本历史
-
-## 参与
-
-欢迎 issue 和 PR。改动动力学的 PR 必须附带一条会因该改动而失败的测试，见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) 模块边界、动力学契约、验收映射
+- [DEPLOYMENT.md](./DEPLOYMENT.md) 启用前要核对的 SDK 清单
+- [CONTRIBUTING.md](./CONTRIBUTING.md) 开发约定
+- [CHANGELOG.md](./CHANGELOG.md)
 
 ## 许可
 
-[MIT](./LICENSE) © 2026 James Hu
+MIT
