@@ -6,25 +6,14 @@ body:
     id: problem
     attributes:
       label: 想解决什么问题
-      description: 描述现状的不足，而不是直接给方案。
+      description: 先说现状的不足，再说方案。
     validations:
       required: true
 
   - type: textarea
     id: proposal
     attributes:
-      label: 建议方案
-      description: 如果涉及动力学改动，请说明会影响哪些不变量。
+      label: 建议
+      description: 如果涉及动力学改动，说明会影响哪些不变量。注意情绪不应影响任务执行、工具调用、事实正确性和安全判断。
     validations:
       required: true
-
-  - type: checkboxes
-    id: boundaries
-    attributes:
-      label: 边界确认
-      description: 这个项目有几条不会破的规矩。
-      options:
-        - label: 该建议不会让情绪影响任务执行、工具调用、事实正确性或安全判断
-          required: true
-        - label: 该建议不需要在注入片段里暴露裸数值
-          required: true
