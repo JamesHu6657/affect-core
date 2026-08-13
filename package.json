@@ -2,7 +2,7 @@
   "name": "openclaw-affect-core",
   "version": "0.2.0-review",
   "type": "module",
-  "description": "An inertial, explainable, bounded affect layer for OpenClaw agents. It changes only how the agent speaks, never what it can do.",
+  "description": "Affect layer for OpenClaw agents: PAD state, appraisal, and expression shaping.",
   "license": "MIT",
   "author": "James Hu (https://github.com/JamesHu6657)",
   "homepage": "https://github.com/JamesHu6657/affect-core#readme",
