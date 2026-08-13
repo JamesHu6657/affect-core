@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { createAffectCore } from "./core.ts";
@@ -20,7 +21,11 @@ function readStateDir(api: OpenClawAdapter, config: AffectConfig): string {
   if (typeof api.workspacePath === "function") return api.workspacePath("affect");
   const workspace = api.config?.agents?.defaults?.workspace;
   if (typeof workspace === "string" && workspace.trim() !== "") return join(workspace, "affect");
-  return "/root/.openclaw/workspace/affect";
+  const fromEnv = process.env.OPENCLAW_WORKSPACE;
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return join(fromEnv.trim(), "affect");
+  // Never hardcode an absolute install path: a non-root install would silently
+  // write state outside its own workspace.
+  return join(homedir(), ".openclaw", "workspace", "affect");
 }
 
 function adaptLogger(api: OpenClawAdapter): PluginLogger | undefined {
