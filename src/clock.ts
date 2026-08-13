@@ -46,7 +46,8 @@ function parts(now: number, timeZone: string): CivilTime {
   return timeZone === FALLBACK_TZ ? utcParts(now) : parts(now, FALLBACK_TZ);
 }
 
-export function resolveTimeZone(value: unknown, fallback = "Asia/Singapore"): string {
+/** Deployment-neutral default: callers configure `proactive.tz` for local behaviour. */
+export function resolveTimeZone(value: unknown, fallback = FALLBACK_TZ): string {
   if (typeof value !== "string" || value.trim() === "") return fallback;
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value.trim() }).format();
