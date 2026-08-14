@@ -1,11 +1,11 @@
-import { sleepOverlapMinutes, sleepPeriodIdsBetween, sleepPeriodId } from "./clock.ts";
-import { DEFAULT_DRIVES, type AffectState, type Drives, type Pad, type Personality } from "./types.ts";
+import { sleepOverlapMinutes, sleepPeriodId, sleepPeriodIdsBetween } from "./clock.ts";
+import { emptyCare } from "./care.ts";
+import { DEFAULT_DRIVES, type AffectState, type Pad, type Personality } from "./types.ts";
 
 export const CAP = 0.35;
 export const HAB_MAX = 6;
 export const MOOD_COUPLING = 0.25;
 export const MAX_DT_MIN = 48 * 60;
-export const DRIVE_UNMET_MS = 60 * 60 * 1000;
 export const JOURNAL_LIMIT = 14;
 const EVENT_LIMIT = 12;
 const HALF_HOUR_MS = 30 * 60 * 1000;
@@ -13,17 +13,10 @@ const ENERGY_AROUSAL_COST_PER_HOUR = 0.12;
 const ENERGY_IMPULSE_COST = 0.04;
 const SLEEP_MOOD_PULL = 0.3;
 
-export interface TickOptions {
-  tz?: string;
-}
-
-export const clamp = (value: number, min = -1, max = 1): number =>
+export const clamp = (value: number, min = -1, max = 1) =>
   Math.max(min, Math.min(max, Number.isFinite(value) ? value : 0));
-
-export const clampUnit = (value: number): number => clamp(value, 0, 1);
-
-export const capAbs = (value: number, cap = CAP): number =>
-  clamp(value, -cap, cap);
+export const clampUnit = (value: number) => clamp(value, 0, 1);
+export const capAbs = (value: number, cap = CAP) => clamp(value, -cap, cap);
 
 export function relax(x: number, base: number, dtMin: number, tau: number): number {
   if (!Number.isFinite(x) || !Number.isFinite(base)) return base;
@@ -42,7 +35,7 @@ export function elapsed(state: AffectState, now: number): number {
   return Math.min(raw, MAX_DT_MIN);
 }
 
-export function accrue(drives: Drives, dtMin: number): Drives {
+export function accrue(drives: AffectState["drives"], dtMin: number): AffectState["drives"] {
   const rate = dtMin / (8 * 60);
   return {
     curiosity: clampUnit(drives.curiosity + rate * 0.7),
@@ -52,28 +45,25 @@ export function accrue(drives: Drives, dtMin: number): Drives {
   };
 }
 
-export function drivesFromTags(tags: readonly string[]): (keyof Drives)[] {
-  const keys = new Set<keyof Drives>();
+export function drivesFromTags(tags: string[]): Array<keyof AffectState["drives"]> {
+  const keys = new Set<keyof AffectState["drives"]>();
   for (const tag of tags) {
     if (tag === "praise") keys.add("recognition");
     if (tag === "novelty") keys.add("curiosity");
     if (tag === "achieve") keys.add("order");
+    if (tag === "contact") keys.add("contact");
   }
   return [...keys];
 }
 
-export function satisfyDrives(drives: Drives, keys: readonly (keyof Drives)[]): Drives {
+export function satisfyDrives(drives: AffectState["drives"], keys: Array<keyof AffectState["drives"]>) {
   if (keys.length === 0) return drives;
   const next = { ...drives };
   for (const key of keys) next[key] = 0;
   return next;
 }
 
-export function applySatisfiedDrives(
-  state: AffectState,
-  tags: readonly string[] = [],
-  extra: readonly (keyof Drives)[] = [],
-): AffectState {
+export function applySatisfiedDrives(state: AffectState, tags: string[] = [], extra: Array<keyof AffectState["drives"]> = []): AffectState {
   const keys = [...new Set([...drivesFromTags(tags), ...extra])];
   if (keys.length === 0) return state;
   const drives = satisfyDrives(state.drives, keys);
@@ -91,14 +81,12 @@ function recoverEnergy(energy: number, dtMin: number, from: number, to: number, 
 export function integratedPositiveArousalHours(a0: number, base: number, tau: number, dtMin: number): number {
   if (!Number.isFinite(tau) || tau <= 0 || dtMin <= 0) return 0;
   if (a0 <= 0 && base <= 0) return 0;
-
   if (a0 <= 0 && base > 0) {
     const tZero = tau * Math.log((base - a0) / base);
     if (!Number.isFinite(tZero) || tZero >= dtMin) return 0;
     const remaining = dtMin - tZero;
     return Math.max(0, base * remaining - base * tau * (1 - Math.exp(-remaining / tau))) / 60;
   }
-
   let tEnd = dtMin;
   if (a0 > 0 && base < 0) {
     const tZero = tau * Math.log((a0 - base) / -base);
@@ -113,10 +101,7 @@ function spendEnergy(energy: number, arousal: number, baseA: number, tauA: numbe
   return clampUnit(energy - spent);
 }
 
-export function decayHab(
-  habituation: AffectState["habituation"],
-  now: number,
-): AffectState["habituation"] {
+export function decayHab(habituation: AffectState["habituation"], now: number): AffectState["habituation"] {
   const next: AffectState["habituation"] = {};
   for (const [tag, entry] of Object.entries(habituation)) {
     const periods = Math.floor(Math.max(0, now - entry.at) / HALF_HOUR_MS);
@@ -128,7 +113,7 @@ export function decayHab(
 
 export function baselineState(personality: Personality, now = Date.now()): AffectState {
   return {
-    version: 2,
+    version: 3,
     pad: { v: personality.base.v, a: capArousal(personality.base.a, 1), d: personality.base.d },
     mood: personality.base.mood,
     energy: 1,
@@ -136,6 +121,7 @@ export function baselineState(personality: Personality, now = Date.now()): Affec
     habituation: {},
     lastEvents: [],
     journal: [],
+    care: emptyCare(),
     updatedAt: now,
     lastInteractionAt: now,
     driveHighSince: null,
@@ -146,20 +132,16 @@ export function baselineState(personality: Personality, now = Date.now()): Affec
   };
 }
 
-export function tick(state: AffectState, personality: Personality, now: number, options: TickOptions = {}): AffectState {
-  const tz = options.tz ?? "UTC";
+export function tick(state: AffectState, personality: Personality, now: number, options: { tz?: string } = {}): AffectState {
+  const tz = options.tz ?? "Asia/Shanghai";
   const dt = elapsed(state, now);
-  if (dt === 0) {
-    return { ...state, updatedAt: now };
-  }
-
+  if (dt === 0) return { ...state, updatedAt: now };
   const from = now - dt * 60_000;
   const spent = spendEnergy(state.energy, state.pad.a, personality.base.a, personality.tau.a, dt);
   const energy = recoverEnergy(spent, dt, from, now, tz);
   const drives = accrue(state.drives, dt);
   const high = Math.max(...Object.values(drives)) > 0.7;
   const driveHighSince = high ? (state.driveHighSince ?? now) : null;
-
   let mood = clamp(relax(state.mood, personality.base.mood, dt, personality.tau.mood));
   let lastSleepMoodAt = state.lastSleepMoodAt;
   const covered = lastSleepMoodAt > 0 ? sleepPeriodId(lastSleepMoodAt, tz) : null;
@@ -170,7 +152,6 @@ export function tick(state: AffectState, personality: Personality, now: number, 
     }
     lastSleepMoodAt = now;
   }
-
   return {
     ...state,
     pad: {
@@ -193,27 +174,23 @@ export function impulse(
   requested: Pad,
   tag: string,
   now: number,
-  source: "l0" | "l1" | "tool" | "cron" | "command" = "l0",
+  source = "l0",
   summary?: string,
   moodCoupling = MOOD_COUPLING,
 ): AffectState {
   const h = state.habituation[tag]?.n ?? 0;
   let gain = Math.pow(0.6, Math.min(h, HAB_MAX));
-
   if (requested.v < 0) {
     gain *= Math.min(1.3, 1 + Math.max(0, -state.mood) * 0.6);
     if (state.mood < -0.5) gain *= 0.5;
   }
-
   const delta = {
     v: capAbs(requested.v * gain),
     a: capAbs(requested.a * gain),
     d: capAbs(requested.d * gain),
   };
-
   let effectiveCoupling = clampUnit(moodCoupling);
   if (delta.v < 0 && state.mood < -0.6) effectiveCoupling *= 0.4;
-
   const energy = clampUnit(state.energy - Math.max(0, delta.a) * ENERGY_IMPULSE_COST);
   const event = { tag, delta, at: now, source, ...(summary ? { summary } : {}) };
   return {
@@ -248,6 +225,7 @@ export function appendJournal(state: AffectState, line: string, now: number): Af
 export function resetPadKeepMood(state: AffectState, personality: Personality, now: number): AffectState {
   return {
     ...state,
+    lastEvents: [],
     pad: {
       v: personality.base.v,
       a: capArousal(personality.base.a, state.energy),

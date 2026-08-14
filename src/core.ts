@@ -1,80 +1,65 @@
-import { createL1Appraiser, mapL1ToPad, needsL1 } from "./appraise-l1.ts";
-import { appraiseCron, appraiseL0, appraiseToolResult } from "./appraise-l0.ts";
-import { createBondStore, type BondStore } from "./bonds.ts";
-import { tokenBucket, type TokenBucket } from "./budget.ts";
-import { inQuietHours, readQuietHours, resolveTimeZone } from "./clock.ts";
+import { appraiseCron, appraiseL0, appraiseToolResult, asContact } from "./appraise-l0.ts";
+import { createL1Appraiser, mapL1ToPad, needsL1, type L1Adapter } from "./appraise-l1.ts";
+import { createBondStore } from "./bonds.ts";
+import { tokenBucket } from "./budget.ts";
+import {
+  applyCareLedger,
+  applyNeglectLedger,
+  hydrateStage,
+  noteStage,
+  readCareConfig,
+} from "./care.ts";
+import { civilDate, inQuietHours, readQuietHours, resolveTimeZone } from "./clock.ts";
 import { handleMoodCommand } from "./commands.ts";
 import { derive } from "./derive.ts";
+import { L0_EVENTS } from "./appraise-l0.ts";
 import { appendJournal, applySatisfiedDrives, impulse, resetPadKeepMood, summarize, tick } from "./dynamics.ts";
 import { renderStageNotes } from "./express.ts";
 import { personalityFrom } from "./personality.ts";
-import { createStore, type AffectStore } from "./store.ts";
-import type {
-  AffectConfig,
-  AffectMessage,
-  AffectState,
-  Appraisal,
-  Drives,
-  L1ModelAdapter,
-  PluginLogger,
-  ToolEvent,
-} from "./types.ts";
-
-export interface AffectCore {
-  onMessage(message: AffectMessage): Promise<{ reply?: string } | undefined>;
-  onToolResult(event: ToolEvent): Promise<void>;
-  beforeAgentReply(userId?: string): Promise<{ systemAppend?: string }>;
-  heartbeat(now?: number): Promise<{ proactive?: { reason: string; summary: string } }>;
-  command(input: string, userId?: string): Promise<string | null>;
-  onSessionReset(): Promise<void>;
-  flush(): Promise<void>;
-  store: AffectStore;
-  bonds: BondStore;
-}
-
-export interface AffectCoreOptions {
-  dir: string;
-  config?: AffectConfig;
-  logger?: PluginLogger;
-  l1?: L1ModelAdapter;
-  now?: () => number;
-}
+import { createStore } from "./store.ts";
+import type { AffectState, InboundMessage, PluginConfig, ToolEvent } from "./types.ts";
 
 const PROACTIVE_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const PROACTIVE_SILENCE_MS = 2 * 60 * 60 * 1000;
 
-export function createAffectCore(options: AffectCoreOptions): AffectCore {
+export type CoreOptions = {
+  dir: string;
+  config?: PluginConfig;
+  l1?: ReturnType<typeof createL1Appraiser> | L1Adapter;
+  now?: () => number;
+  logger?: { debug?: Function; warn?: Function; error?: Function };
+};
+
+export function createAffectCore(options: CoreOptions) {
   const config = options.config ?? {};
   const personality = personalityFrom(config);
   const store = createStore(options.dir, personality);
   const bonds = createBondStore(options.dir);
   const clock = options.now ?? Date.now;
-  const tz = resolveTimeZone(config.proactive?.tz);
+  const tz = resolveTimeZone(config.care?.tz ?? config.proactive?.tz);
   const quietHours = readQuietHours(config.proactive?.quietHours);
   const proactiveEnabled = config.proactive?.enabled === true;
   const maxRate = typeof config.l1?.maxRatePerHour === "number" ? config.l1.maxRatePerHour : 12;
-  const budget: TokenBucket = tokenBucket(maxRate, clock);
-  const l1 = options.l1 ? createL1Appraiser(options.l1) : null;
+  const budget = tokenBucket(maxRate, clock);
+  const l1 = options.l1
+    ? "cached" in options.l1
+      ? options.l1
+      : createL1Appraiser(options.l1)
+    : null;
   const globallyEnabled = config.enabled === true;
+  const caps = readCareConfig(config);
   const failures = new Map<string, number>();
-
   const step = (state: AffectState, now: number) => tick(state, personality, now, { tz });
 
+  let lastUserId: string | undefined;
+
   const applyImpulse = async (
-    appraisal: Appraisal,
-    extras: { lastInteraction?: boolean; lastLonely?: boolean; satisfy?: readonly (keyof Drives)[] } = {},
+    appraisal: { tag: string; delta: { v: number; a: number; d: number }; source: string; summary: string },
+    extras: { satisfy?: Array<"contact" | "recognition" | "curiosity" | "order">; lastInteraction?: boolean; lastLonely?: boolean } = {},
   ) => {
     const now = clock();
     await store.mutate((state) => {
-      let next = impulse(
-        step(state, now),
-        appraisal.delta,
-        appraisal.tag,
-        now,
-        appraisal.source,
-        appraisal.summary,
-        personality.moodCoupling,
-      );
+      let next = impulse(step(state, now), appraisal.delta, appraisal.tag, now, appraisal.source, appraisal.summary, personality.moodCoupling);
       if (extras.satisfy) next = applySatisfiedDrives(next, [appraisal.tag], extras.satisfy);
       if (extras.lastInteraction) next = { ...next, lastInteractionAt: now };
       if (extras.lastLonely) next = { ...next, lastLonelyAt: now };
@@ -82,47 +67,85 @@ export function createAffectCore(options: AffectCoreOptions): AffectCore {
     });
   };
 
+  const growBond = async (userId: string | undefined, familiarity: number, now: number) => {
+    if (!userId) return;
+    await store.mutate((state) => {
+      const noted = noteStage(state.care, familiarity);
+      if (!noted.promoted) return { ...state, care: noted.care };
+      return appendJournal(
+        impulse(
+          { ...state, care: noted.care },
+          L0_EVENTS.stage,
+          "stage",
+          now,
+          "care",
+          `养成到了「${noted.promoted}」`,
+          personality.moodCoupling,
+        ),
+        `升到 ${noted.promoted}`,
+        now,
+      );
+    });
+  };
+
   return {
     store,
     bonds,
-    async onMessage(message) {
+    async onMessage(message: InboundMessage) {
       try {
         if (!globallyEnabled) return;
         const command = await this.command(message.text, message.userId);
         if (command !== null) return { reply: command };
         if (!(await store.read()).enabled) return;
-
         const now = clock();
+        if (message.userId) lastUserId = message.userId;
+        if (message.userId) {
+          const existing = await bonds.read(message.userId);
+          await store.mutate((state) => ({ ...state, care: hydrateStage(state.care, existing.familiarity) }));
+        }
         const l0 = appraiseL0(message);
+        let appraisal = l0;
+        if (l1 && config.l1?.enabled === true && needsL1(message, Boolean(l0))) {
+          const signal = l0?.tag ?? "ambiguous";
+          if (l1.cached(message, signal) || budget.take(clock())) {
+            const bond = await bonds.read(message.userId ?? lastUserId ?? "anonymous");
+            const assessment = await l1(message, bond, signal, typeof config.l1?.timeoutMs === "number" ? config.l1.timeoutMs : 1500);
+            if (assessment) {
+              appraisal = {
+                tag: assessment.tag,
+                delta: mapL1ToPad(assessment),
+                source: "l1",
+                summary: assessment.summary,
+              };
+            }
+          }
+        }
+        if (!appraisal) appraisal = asContact(message);
+        let bondDelta = {};
         await store.mutate((state) => {
           let next = step(state, now);
-          if (l0) {
-            next = impulse(next, l0.delta, l0.tag, now, l0.source, l0.summary, personality.moodCoupling);
+          if (appraisal) {
+            next = impulse(next, appraisal.delta, appraisal.tag, now, appraisal.source, appraisal.summary, personality.moodCoupling);
+            const ledger = applyCareLedger(next.care, appraisal.tag, now, tz, caps);
+            bondDelta = ledger.bond;
+            next = applySatisfiedDrives(
+              { ...next, care: ledger.care, lastInteractionAt: now },
+              [appraisal.tag],
+              appraisal.tag === "contact" ? ["contact"] : [],
+            );
           }
-          next = applySatisfiedDrives(next, l0 ? [l0.tag] : [], ["contact"]);
-          return { ...next, lastInteractionAt: now };
+          return next;
         });
-        if (message.userId) await bonds.update(message.userId, l0?.bond ?? {});
-
-        if (!l1 || config.l1?.enabled !== true || !needsL1(message, Boolean(l0))) return;
-        const signal = l0?.tag ?? "ambiguous";
-        if (!l1.cached(message, signal) && !budget.take(clock())) return;
-        const bond = await bonds.read(message.userId ?? "anonymous");
-        const assessment = await l1(message, bond, signal, typeof config.l1?.timeoutMs === "number" ? config.l1.timeoutMs : 1500);
-        if (!assessment) return;
-        const refinedAt = clock();
-        await store.mutate((state) =>
-          impulse(step(state, refinedAt), mapL1ToPad(assessment), assessment.tag, refinedAt, "l1", assessment.summary, personality.moodCoupling),
-        );
-        if (message.userId && assessment.relevanceToBond > 0.2) {
-          const trust = assessment.desirability >= 0 ? assessment.desirability * 0.03 : assessment.desirability * 0.06;
-          await bonds.update(message.userId, { trust, familiarity: 0.01 * assessment.relevanceToBond });
+        if (message.userId && appraisal) {
+          const after = await bonds.update(message.userId, bondDelta);
+          await growBond(message.userId, after.familiarity, now);
         }
+        await this.flush();
       } catch (error) {
         options.logger?.warn?.("affect: message appraisal skipped", error);
       }
     },
-    async onToolResult(event) {
+    async onToolResult(event: ToolEvent) {
       try {
         if (!globallyEnabled || !(await store.read()).enabled) return;
         const key = event.toolName;
@@ -130,26 +153,41 @@ export function createAffectCore(options: AffectCoreOptions): AffectCore {
         failures.set(key, count);
         const appraisal = appraiseToolResult(event, count);
         const now = clock();
+        const sender = event.userId;
         if (appraisal) {
-          await applyImpulse(appraisal, {
-            lastInteraction: true,
-            satisfy: appraisal.tag === "achieve" ? ["order"] : [],
+          let bondDelta = {};
+          await store.mutate((state) => {
+            let next = impulse(step(state, now), appraisal.delta, appraisal.tag, now, appraisal.source, appraisal.summary, personality.moodCoupling);
+            if (appraisal.tag === "achieve") next = applySatisfiedDrives(next, [appraisal.tag], ["order"]);
+            const humanToday = Boolean(sender) && state.care.lastCareDay === civilDate(now, tz);
+            if (humanToday) {
+              const ledger = applyCareLedger(next.care, appraisal.tag, now, tz, caps);
+              bondDelta = ledger.bond;
+              next = { ...next, care: ledger.care };
+            }
+            return sender ? { ...next, lastInteractionAt: now } : next;
           });
-        } else {
-          await store.mutate((state) => ({ ...step(state, now), lastInteractionAt: now }));
+          if (sender && Object.keys(bondDelta).length > 0) {
+            const after = await bonds.update(sender, bondDelta);
+            await growBond(sender, after.familiarity, now);
+          }
         }
+        await this.flush();
       } catch (error) {
         options.logger?.warn?.("affect: tool appraisal skipped", error);
       }
     },
-    async beforeAgentReply(userId) {
+    async beforeAgentReply(userId?: string) {
       try {
         if (!globallyEnabled) return {};
         const now = clock();
         const state = await store.mutate((current) => step(current, now));
         if (!state.enabled) return {};
-        const bond = await bonds.read(userId ?? "anonymous");
-        return { systemAppend: renderStageNotes(derive(state, bond, personality)) };
+        const resolved = userId ?? lastUserId ?? "anonymous";
+        const bond = await bonds.read(resolved);
+        await store.mutate((current) => ({ ...current, care: hydrateStage(current.care, bond.familiarity) }));
+        const hydrated = await store.read();
+        return { systemAppend: renderStageNotes(derive(hydrated, bond, personality, now)) };
       } catch (error) {
         options.logger?.warn?.("affect: stage-note injection skipped", error);
         return {};
@@ -166,7 +204,11 @@ export function createAffectCore(options: AffectCoreOptions): AffectCore {
           driveHighForMs = next.driveHighSince !== null ? Math.max(0, now - next.driveHighSince) : 0;
           return next;
         });
-        await bonds.fadeAll(now);
+        const neglect = applyNeglectLedger(snapshot.care, now, tz);
+        if (neglect.bond.affection || neglect.bond.trust) {
+          await store.mutate((state) => ({ ...state, care: neglect.care }));
+          await bonds.updateAll(neglect.bond, false);
+        }
         const maxDrive = Math.max(...Object.values(snapshot.drives));
         const alreadyLonely = snapshot.lastLonelyAt > snapshot.lastInteractionAt;
         const appraisal = appraiseCron(silenceAgeMs, maxDrive, driveHighForMs, alreadyLonely);
@@ -176,8 +218,7 @@ export function createAffectCore(options: AffectCoreOptions): AffectCore {
             await store.mutate((state) => ({ ...state, driveHighSince: now }));
           }
         }
-
-        let proactive: { reason: string; summary: string } | undefined;
+        let proactive;
         if (
           proactiveEnabled &&
           !inQuietHours(now, quietHours, tz) &&
@@ -191,7 +232,6 @@ export function createAffectCore(options: AffectCoreOptions): AffectCore {
           };
           await store.mutate((state) => ({ ...state, lastProactiveAt: now }));
         }
-
         await store.flush();
         await bonds.flush();
         return proactive ? { proactive } : {};
@@ -200,7 +240,7 @@ export function createAffectCore(options: AffectCoreOptions): AffectCore {
         return {};
       }
     },
-    async command(input, userId) {
+    async command(input: string, userId?: string) {
       try {
         if (!globallyEnabled) {
           return input.trim().toLowerCase().startsWith("/mood") ? "情感层在配置中关闭。" : null;
@@ -209,11 +249,12 @@ export function createAffectCore(options: AffectCoreOptions): AffectCore {
         const now = clock();
         const bond = await bonds.read(userId ?? "anonymous");
         await store.mutate((state) => {
-          const result = handleMoodCommand(input, step(state, now), bond, personality, now);
+          const result = handleMoodCommand(input, step(state, now), bond, personality, now, config, tz);
           if (!result) return state;
           output = result.text;
           return result.state;
         });
+        await this.flush();
         return output;
       } catch (error) {
         options.logger?.warn?.("affect: command skipped", error);

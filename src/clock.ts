@@ -1,14 +1,14 @@
 const FALLBACK_TZ = "UTC";
 
-export interface CivilTime {
+export type Civil = {
   year: number;
   month: number;
   day: number;
   hour: number;
   minute: number;
-}
+};
 
-function utcParts(now: number): CivilTime {
+function utcParts(now: number): Civil {
   const date = new Date(now);
   return {
     year: date.getUTCFullYear(),
@@ -19,7 +19,7 @@ function utcParts(now: number): CivilTime {
   };
 }
 
-function parts(now: number, timeZone: string): CivilTime {
+export function parts(now: number, timeZone: string): Civil {
   try {
     const formatted = new Intl.DateTimeFormat("en-US", {
       timeZone,
@@ -30,9 +30,9 @@ function parts(now: number, timeZone: string): CivilTime {
       minute: "2-digit",
       hourCycle: "h23",
     }).formatToParts(new Date(now));
-    const value = (type: Intl.DateTimeFormatPartTypes): number =>
+    const value = (type: Intl.DateTimeFormatPartTypes) =>
       Number(formatted.find((part) => part.type === type)?.value ?? Number.NaN);
-    const civil: CivilTime = {
+    const civil = {
       year: value("year"),
       month: value("month"),
       day: value("day"),
@@ -41,12 +41,12 @@ function parts(now: number, timeZone: string): CivilTime {
     };
     if (Object.values(civil).every(Number.isFinite)) return civil;
   } catch {
-    // Bad IANA names fall back to UTC so tick() cannot throw.
+    // Invalid IANA names fall back to UTC so tick() cannot throw on a bad config.
   }
   return timeZone === FALLBACK_TZ ? utcParts(now) : parts(now, FALLBACK_TZ);
 }
 
-export function resolveTimeZone(value: unknown, fallback = FALLBACK_TZ): string {
+export function resolveTimeZone(value: unknown, fallback = "Asia/Shanghai"): string {
   if (typeof value !== "string" || value.trim() === "") return fallback;
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value.trim() }).format();
@@ -71,7 +71,7 @@ export function parseClock(value: string): number | null {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
-export function inQuietHours(now: number, quietHours: readonly [string, string], timeZone: string): boolean {
+export function inQuietHours(now: number, quietHours: [string, string], timeZone: string): boolean {
   const start = parseClock(quietHours[0]);
   const end = parseClock(quietHours[1]);
   if (start === null || end === null) return false;
@@ -126,4 +126,23 @@ export function readQuietHours(value: unknown): [string, string] {
     if (parseClock(value[0]) !== null && parseClock(value[1]) !== null) return [value[0], value[1]];
   }
   return ["23:30", "08:00"];
+}
+
+export function civilDate(now: number, timeZone: string): string {
+  const civil = parts(now, timeZone);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${civil.year}-${pad(civil.month)}-${pad(civil.day)}`;
+}
+
+export function parseCivil(day: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match) return null;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+export function civilDaysBetween(from: string, to: string): number {
+  const start = parseCivil(from);
+  const end = parseCivil(to);
+  if (start === null || end === null) return 0;
+  return Math.round((end - start) / 86_400_000);
 }

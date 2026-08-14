@@ -1,41 +1,22 @@
 {
   "id": "affect-core",
   "name": "Affect Core",
-  "description": "Affect layer that shapes agent expression only.",
-  "version": "0.2.0",
-  "main": "./dist/index.js",
-  "activation": {
-    "onStartup": true
-  },
+  "description": "Pet-like sustainable cultivation plus an inertial, bounded affect layer. Local review build.",
+  "version": "0.3.0-pet-review",
+  "main": "./src/index.ts",
+  "activation": { "onStartup": true },
   "openclaw": {
     "minVersion": "2026.7.1",
-    "extensions": [
-      "./dist/index.js"
-    ],
-    "compat": {
-      "pluginApi": ">=2026.3.23"
-    }
+    "extensions": ["./src/index.ts"],
+    "compat": { "pluginApi": ">=2026.3.23" }
   },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "enabled": {
-        "type": "boolean",
-        "default": false,
-        "description": "Off by default. Enable after verifying the SDK hook names for your OpenClaw version."
-      },
-      "stateDir": {
-        "type": "string",
-        "description": "Directory for state.json and bonds.json. Defaults to <workspace>/affect."
-      },
-      "maxIntensity": {
-        "type": "integer",
-        "minimum": 0,
-        "maximum": 3,
-        "default": 2,
-        "description": "Expression ceiling. 0 never mentions affect, 3 allows one explicit self-report."
-      },
+      "enabled": { "type": "boolean", "default": false },
+      "stateDir": { "type": "string" },
+      "maxIntensity": { "type": "integer", "minimum": 0, "maximum": 3, "default": 2 },
       "personality": {
         "type": "object",
         "additionalProperties": false,
@@ -47,22 +28,18 @@
           "neuroticism": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.35 }
         }
       },
-      "tau": {
+      "care": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Time constants in minutes. Half-life is tau * ln2.",
         "properties": {
-          "v": { "type": "number", "exclusiveMinimum": 0, "default": 55 },
-          "a": { "type": "number", "exclusiveMinimum": 0, "default": 14 },
-          "d": { "type": "number", "exclusiveMinimum": 0, "default": 70 },
-          "mood": { "type": "number", "exclusiveMinimum": 0, "default": 900 }
+          "tz": { "type": "string", "default": "Asia/Shanghai" },
+          "dailyFamiliarityCap": { "type": "number", "minimum": 0, "maximum": 0.2, "default": 0.022 },
+          "dailyAffectionCap": { "type": "number", "minimum": 0, "maximum": 0.2, "default": 0.016 }
         }
       },
-      "moodCoupling": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.25 },
       "l1": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Model-assisted appraisal. Requires a model adapter; without one the layer stays on L0 rules.",
         "properties": {
           "enabled": { "type": "boolean", "default": false },
           "maxRatePerHour": { "type": "integer", "minimum": 0, "maximum": 120, "default": 12 },
@@ -81,11 +58,7 @@
             "maxItems": 2,
             "default": ["23:30", "08:00"]
           },
-          "tz": {
-            "type": "string",
-            "default": "UTC",
-            "description": "IANA time zone for quiet hours and the sleep window."
-          }
+          "tz": { "type": "string", "default": "Asia/Shanghai" }
         }
       }
     }

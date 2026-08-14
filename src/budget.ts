@@ -1,17 +1,10 @@
-export interface TokenBucket {
-  take(now?: number): boolean;
-  remaining(now?: number): number;
-}
-
-export function tokenBucket(maxRatePerHour: number, now = Date.now): TokenBucket {
+export function tokenBucket(maxRatePerHour: number, now: () => number = Date.now) {
   const capacity = Math.max(0, Math.floor(Number.isFinite(maxRatePerHour) ? maxRatePerHour : 0));
   const windowMs = 60 * 60 * 1000;
   let grants: number[] = [];
-
   const prune = (at: number) => {
     grants = grants.filter((timestamp) => timestamp > at - windowMs);
   };
-
   return {
     take(at = now()) {
       prune(at);

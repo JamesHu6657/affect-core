@@ -1,49 +1,20 @@
 {
   "name": "openclaw-affect-core",
-  "version": "0.2.0",
+  "version": "0.3.0-pet",
+  "private": true,
   "type": "module",
-  "description": "Affect layer for OpenClaw agents: PAD state, appraisal, and expression shaping.",
-  "license": "MIT",
-  "author": "James Hu (https://github.com/JamesHu6657)",
-  "homepage": "https://github.com/JamesHu6657/affect-core#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/JamesHu6657/affect-core.git"
-  },
-  "bugs": {
-    "url": "https://github.com/JamesHu6657/affect-core/issues"
-  },
-  "keywords": [
-    "openclaw",
-    "openclaw-plugin",
-    "affect",
-    "emotion",
-    "pad-model",
-    "appraisal",
-    "agent",
-    "llm"
-  ],
+  "description": "OpenClaw affect-core v0.3: pet-like sustainable cultivation plus an inertial affect layer.",
   "engines": {
-    "node": ">=22.6.0"
+    "node": ">=22.0.0"
   },
-  "main": "./dist/index.js",
-  "files": [
-    "dist",
-    "openclaw.plugin.json",
-    "README.md",
-    "LICENSE"
-  ],
+  "main": "./src/index.ts",
   "scripts": {
     "test": "node --test --experimental-strip-types test/*.test.ts",
-    "test:watch": "node --test --watch --experimental-strip-types test/*.test.ts",
-    "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json",
-    "check": "npm run typecheck && npm run test"
+    "simulate": "node --experimental-strip-types scripts/simulate-month.ts",
+    "typecheck": "tsc --noEmit"
   },
   "openclaw": {
-    "extensions": [
-      "./dist/index.js"
-    ],
+    "extensions": ["./src/index.ts"],
     "compat": {
       "pluginApi": ">=2026.3.23"
     }

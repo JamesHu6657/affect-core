@@ -1,12 +1,22 @@
 import { capAbs, clamp, clampUnit } from "./dynamics.ts";
-import type { AffectMessage, Bond, L1Assessment, L1ModelAdapter, Pad } from "./types.ts";
+import type { Bond, InboundMessage, Pad } from "./types.ts";
 
-interface CacheEntry {
-  value: L1Assessment;
-  expiresAt: number;
-}
+export type L1Assessment = {
+  tag: string;
+  summary: string;
+  desirability: number;
+  expectedness: number;
+  controllability: number;
+  normViolation: number;
+  relevanceToBond: number;
+  agency: "self" | "other" | "none";
+};
 
-export function messageFingerprint(message: AffectMessage): string {
+export type L1Adapter = {
+  appraise: (input: { message: InboundMessage; bond: Bond; signal: string }) => Promise<L1Assessment | null>;
+};
+
+export function messageFingerprint(message: InboundMessage): string {
   const normalized = message.text.trim().toLowerCase().replace(/\s+/g, " ");
   let hash = 2166136261;
   for (let index = 0; index < normalized.length; index += 1) {
@@ -16,24 +26,28 @@ export function messageFingerprint(message: AffectMessage): string {
   return (hash >>> 0).toString(36);
 }
 
-export function needsL1(message: AffectMessage, l0Hit: boolean): boolean {
+export function needsL1(message: InboundMessage, l0Hit: boolean): boolean {
   if (l0Hit) return false;
-  const text = message.text;
-  return /承诺|道别|批评|信任|失望|抱歉|关系|promise|goodbye|critic|trust|disappoint|sorry/i.test(text);
+  return /承诺|道别|批评|信任|失望|抱歉|关系|promise|goodbye|critic|trust|disappoint|sorry/i.test(message.text);
+}
+
+export function isRelationalCue(message: InboundMessage): boolean {
+  return needsL1(message, false);
 }
 
 export function withTimeout<T>(promise: Promise<T>, timeoutMs = 1500): Promise<T | null> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), Math.max(1, timeoutMs));
-    promise
-      .then((value) => {
+    promise.then(
+      (value) => {
         clearTimeout(timer);
         resolve(value);
-      })
-      .catch(() => {
+      },
+      () => {
         clearTimeout(timer);
         resolve(null);
-      });
+      },
+    );
   });
 }
 
@@ -42,7 +56,6 @@ export function mapL1ToPad(assessment: L1Assessment): Pad {
   const unexpectedness = 1 - clampUnit(assessment.expectedness);
   const controllability = clampUnit(assessment.controllability);
   const normViolation = clampUnit(assessment.normViolation);
-
   const v = desirability * 0.3;
   const a = unexpectedness * 0.22 + Math.abs(desirability) * 0.08;
   const agencyShift = assessment.agency === "self" ? 0.1 : assessment.agency === "other" ? -0.06 : 0;
@@ -50,49 +63,38 @@ export function mapL1ToPad(assessment: L1Assessment): Pad {
   return { v: capAbs(v), a: capAbs(a), d: capAbs(d) };
 }
 
-export type L1Runner = ((
-  message: AffectMessage,
-  bond: Bond,
-  signal: string,
-  timeoutMs?: number,
-) => Promise<L1Assessment | null>) & {
-  cached(message: AffectMessage, signal: string, now?: number): boolean;
-};
-
-export function createL1Appraiser(adapter: L1ModelAdapter, ttlMs = 6 * 60 * 60 * 1000): L1Runner {
-  const cache = new Map<string, CacheEntry>();
-  const cacheKey = (message: AffectMessage, signal: string) => `${signal}:${messageFingerprint(message)}`;
-
-  const appraise: L1Runner = async (message, bond, signal, timeoutMs = 1500) => {
+export function createL1Appraiser(adapter: L1Adapter, ttlMs = 6 * 60 * 60 * 1000) {
+  const cache = new Map<string, { value: L1Assessment; expiresAt: number }>();
+  const cacheKey = (message: InboundMessage, signal: string) => `${signal}:${messageFingerprint(message)}`;
+  const appraise = async (message: InboundMessage, bond: Bond, signal: string, timeoutMs = 1500) => {
     const key = cacheKey(message, signal);
     const now = Date.now();
     const hit = cache.get(key);
     if (hit && hit.expiresAt > now) return hit.value;
-
     const result = await withTimeout(adapter.appraise({ message, bond, signal }), timeoutMs);
     const valid = result && isL1Assessment(result) ? normalizeAssessment(result) : null;
     if (valid) cache.set(key, { value: valid, expiresAt: now + ttlMs });
     return valid;
   };
-
-  appraise.cached = (message, signal, now = Date.now()) => {
+  appraise.cached = (message: InboundMessage, signal: string, now = Date.now()) => {
     const hit = cache.get(cacheKey(message, signal));
     return Boolean(hit && hit.expiresAt > now);
   };
-
   return appraise;
 }
 
-function isL1Assessment(value: L1Assessment): boolean {
+function isL1Assessment(value: unknown): value is L1Assessment {
+  if (!value || typeof value !== "object") return false;
+  const item = value as L1Assessment;
   return (
-    typeof value.tag === "string" &&
-    typeof value.summary === "string" &&
-    typeof value.desirability === "number" &&
-    typeof value.expectedness === "number" &&
-    typeof value.controllability === "number" &&
-    typeof value.normViolation === "number" &&
-    typeof value.relevanceToBond === "number" &&
-    (value.agency === "self" || value.agency === "other" || value.agency === "none")
+    typeof item.tag === "string" &&
+    typeof item.summary === "string" &&
+    typeof item.desirability === "number" &&
+    typeof item.expectedness === "number" &&
+    typeof item.controllability === "number" &&
+    typeof item.normViolation === "number" &&
+    typeof item.relevanceToBond === "number" &&
+    (item.agency === "self" || item.agency === "other" || item.agency === "none")
   );
 }
 
