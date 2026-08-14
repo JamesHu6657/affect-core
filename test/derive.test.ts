@@ -64,7 +64,7 @@ describe("derive", () => {
 
   it("renders a pet status card", () => {
     const current = state({
-      care: { ...emptyCare("2026-08-14"), streak: 3, lastCareDay: "2026-08-14", today: { day: "2026-08-14", familiarity: 0.01, affection: 0.004, interactions: 4, negAffection: 0, negTrust: 0 } },
+      care: { ...emptyCare("2026-08-14"), streak: 3, lastCareDay: "2026-08-14", today: { ...emptyCare("2026-08-14").today, familiarity: 0.01, affection: 0.004, interactions: 4 } },
       lastEvents: [{ tag: "contact", at: now, source: "l0", delta: { v: 0.05, a: 0.04, d: 0.02 }, summary: "你继续陪她说话" }],
     });
     const bond = { ...stranger, care: current.care };

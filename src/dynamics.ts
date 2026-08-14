@@ -192,15 +192,21 @@ export function impulse(
   let effectiveCoupling = clampUnit(moodCoupling);
   if (delta.v < 0 && state.mood < -0.6) effectiveCoupling *= 0.4;
   const energy = clampUnit(state.energy - Math.max(0, delta.a) * ENERGY_IMPULSE_COST);
-  const event = { tag, delta, at: now, source, ...(summary ? { summary } : {}) };
+  const nextPad = {
+    v: clamp(state.pad.v + delta.v),
+    a: capArousal(clamp(state.pad.a + delta.a), energy),
+    d: clamp(state.pad.d + delta.d),
+  };
+  const actual = {
+    v: nextPad.v - state.pad.v,
+    a: nextPad.a - state.pad.a,
+    d: nextPad.d - state.pad.d,
+  };
+  const event = { tag, delta: actual, at: now, source, ...(summary ? { summary } : {}) };
   return {
     ...state,
-    pad: {
-      v: clamp(state.pad.v + delta.v),
-      a: capArousal(clamp(state.pad.a + delta.a), energy),
-      d: clamp(state.pad.d + delta.d),
-    },
-    mood: clamp(state.mood + delta.v * effectiveCoupling),
+    pad: nextPad,
+    mood: clamp(state.mood + actual.v * effectiveCoupling),
     energy,
     habituation: {
       ...state.habituation,

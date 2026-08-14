@@ -43,6 +43,7 @@ export const DEFAULT_FAM_CAP = 0.022;
 export const DEFAULT_AFF_CAP = 0.016;
 export const DEFAULT_NEG_AFF_CAP = 0.03;
 export const DEFAULT_NEG_TRUST_CAP = 0.12;
+export const DEFAULT_POS_TRUST_CAP = 0.04;
 export const SOFT_INTERACTIONS = 8;
 export const HARD_INTERACTIONS = 12;
 
@@ -83,7 +84,7 @@ export function readCareConfig(config: PluginConfig = {}) {
 
 function rollToday(care: CareState, day: string): CareState {
   if (care.today.day === day) return care;
-  return { ...care, today: { day, familiarity: 0, affection: 0, interactions: 0, negAffection: 0, negTrust: 0 } };
+  return { ...care, today: { ...emptyCare(day).today, day } };
 }
 
 export function streakBonus(streak: number): number {
@@ -136,10 +137,11 @@ export function applyCareLedger(
     wantAff >= 0
       ? takePositive(next.today.affection, wantAff, caps.dailyAffectionCap)
       : takeNegative(next.today.negAffection ?? 0, wantAff, DEFAULT_NEG_AFF_CAP);
+  const wantTrust = (recipe.trust ?? 0) * ((recipe.trust ?? 0) > 0 ? scale : 1);
   const trust =
-    (recipe.trust ?? 0) >= 0
-      ? recipe.trust
-      : takeNegative(next.today.negTrust ?? 0, recipe.trust ?? 0, DEFAULT_NEG_TRUST_CAP);
+    wantTrust >= 0
+      ? takePositive(next.today.posTrust ?? 0, wantTrust, DEFAULT_POS_TRUST_CAP)
+      : takeNegative(next.today.negTrust ?? 0, wantTrust, DEFAULT_NEG_TRUST_CAP);
   const today: CareToday = {
     ...next.today,
     familiarity: next.today.familiarity + Math.max(0, fam),
@@ -147,6 +149,7 @@ export function applyCareLedger(
     interactions: next.today.interactions + 1,
     negAffection: (next.today.negAffection ?? 0) + Math.max(0, -aff),
     negTrust: (next.today.negTrust ?? 0) + Math.max(0, -(trust ?? 0)),
+    posTrust: (next.today.posTrust ?? 0) + Math.max(0, trust ?? 0),
   };
   return {
     care: { ...next, today },
@@ -233,6 +236,7 @@ export function seedCare(state: Partial<AffectState> | undefined, now = Date.now
       interactions: Number.isFinite(today.interactions) ? Math.max(0, Math.floor(today.interactions)) : 0,
       negAffection: Number.isFinite(today.negAffection) ? Math.max(0, today.negAffection) : 0,
       negTrust: Number.isFinite(today.negTrust) ? Math.max(0, today.negTrust) : 0,
+      posTrust: Number.isFinite(today.posTrust) ? Math.max(0, today.posTrust) : 0,
     },
   };
 }

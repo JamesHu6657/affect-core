@@ -14,12 +14,12 @@ import { handleMoodCommand } from "./commands.ts";
 import { derive } from "./derive.ts";
 import { L0_EVENTS } from "./appraise-l0.ts";
 import { appendJournal, applySatisfiedDrives, impulse, resetPadKeepMood, summarize, tick } from "./dynamics.ts";
-import { renderStageNotes } from "./express.ts";
+import { HARD_CONSTRAINTS, renderDynamicNotes } from "./express.ts";
+import { planCareMigration } from "./migrate.ts";
 import { personalityFrom } from "./personality.ts";
 import { createStore } from "./store.ts";
 import type { AffectState, InboundMessage, PluginConfig, ToolEvent } from "./types.ts";
 
-const PROACTIVE_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const PROACTIVE_SILENCE_MS = 2 * 60 * 60 * 1000;
 
 export type CoreOptions = {
@@ -53,6 +53,23 @@ export function createAffectCore(options: CoreOptions) {
 
   let lastUserId: string | undefined;
   const lastSenderBySession = new Map<string, string>();
+  let migrated = false;
+
+  const migrate = async () => {
+    if (migrated) return;
+    migrated = true;
+    const snapshot = await store.read();
+    const entries = await bonds.entries();
+    const planned = planCareMigration(snapshot, entries, config.careMigrateTo ?? config.ownerIds?.[0]);
+    if (planned.note === "already-migrated") return;
+    await store.mutate(() => planned.state);
+    for (const [userId, bond] of planned.bonds) {
+      await bonds.mutate(userId, () => bond);
+    }
+    if (planned.note === "legacy-ambiguous") {
+      options.logger?.warn?.("affect: leftover global care kept as legacyCare; set careMigrateTo to assign it");
+    }
+  };
 
   const applyImpulse = async (
     appraisal: { tag: string; delta: { v: number; a: number; d: number }; source: string; summary: string },
@@ -89,8 +106,25 @@ export function createAffectCore(options: CoreOptions) {
   return {
     store,
     bonds,
+    async migrate() {
+      await migrate();
+    },
+    endSession(sessionKey?: string, userId?: string) {
+      if (sessionKey) {
+        lastSenderBySession.delete(sessionKey);
+        for (const key of failures.keys()) {
+          if (key.startsWith(`${sessionKey}:`)) failures.delete(key);
+        }
+      }
+      if (userId) {
+        for (const key of failures.keys()) {
+          if (key.startsWith(`${userId}:`)) failures.delete(key);
+        }
+      }
+    },
     async onMessage(message: InboundMessage) {
       try {
+        await migrate();
         if (!globallyEnabled) return;
         const command = await this.command(message.text ?? "", message.userId);
         if (command !== null) return { reply: command };
@@ -151,7 +185,8 @@ export function createAffectCore(options: CoreOptions) {
     async onToolResult(event: ToolEvent) {
       try {
         if (!globallyEnabled || !(await store.read()).enabled) return;
-        const key = event.toolName;
+        await migrate();
+        const key = `${event.sessionKey ?? event.userId ?? "anon"}:${event.toolName}`;
         const count = event.error ? (failures.get(key) ?? 0) + 1 : 0;
         failures.set(key, count);
         const appraisal = appraiseToolResult(event, count);
@@ -184,13 +219,17 @@ export function createAffectCore(options: CoreOptions) {
     },
     async beforeAgentReply(userId?: string, sessionKey?: string) {
       try {
+        await migrate();
         if (!globallyEnabled) return {};
         const now = clock();
         const state = await store.mutate((current) => step(current, now));
         if (!state.enabled) return {};
         const resolved = userId ?? (sessionKey ? lastSenderBySession.get(sessionKey) : undefined) ?? lastUserId ?? "anonymous";
         const bond = await bonds.read(resolved);
-        return { systemAppend: renderStageNotes(derive(state, bond, personality, now)) };
+        return {
+          systemAppend: HARD_CONSTRAINTS,
+          appendContext: renderDynamicNotes(derive(state, bond, personality, now)),
+        };
       } catch (error) {
         options.logger?.warn?.("affect: stage-note injection skipped", error);
         return {};
@@ -198,6 +237,7 @@ export function createAffectCore(options: CoreOptions) {
     },
     async heartbeat(now = clock()) {
       try {
+        await migrate();
         if (!globallyEnabled || !(await store.read()).enabled) return {};
         let silenceAgeMs = 0;
         let driveHighForMs = 0;
@@ -227,15 +267,13 @@ export function createAffectCore(options: CoreOptions) {
         if (
           proactiveEnabled &&
           !inQuietHours(now, quietHours, tz) &&
-          now - snapshot.lastProactiveAt >= PROACTIVE_MIN_INTERVAL_MS &&
           silenceAgeMs >= PROACTIVE_SILENCE_MS &&
           (snapshot.drives.contact >= 0.55 || snapshot.drives.recognition >= 0.55 || silenceAgeMs >= 6 * 60 * 60 * 1000)
         ) {
           proactive = {
             reason: silenceAgeMs >= 6 * 60 * 60 * 1000 ? "lonely" : "drive",
-            summary: "quiet contact window; a low-intensity check-in would match current drives",
+            summary: "suggestion only; this plugin does not send outbound messages",
           };
-          await store.mutate((state) => ({ ...state, lastProactiveAt: now }));
         }
         await store.flush();
         await bonds.flush();
@@ -245,8 +283,9 @@ export function createAffectCore(options: CoreOptions) {
         return {};
       }
     },
-    async command(input: string, userId?: string) {
+    async command(input: string, userId?: string, auth: { senderIsOwner?: boolean } = {}) {
       try {
+        await migrate();
         if (!globallyEnabled) {
           return input.trim().toLowerCase().startsWith("/mood") ? "情感层在配置中关闭。" : null;
         }
@@ -254,7 +293,10 @@ export function createAffectCore(options: CoreOptions) {
         const now = clock();
         const bond = await bonds.read(userId ?? "anonymous");
         await store.mutate((state) => {
-          const result = handleMoodCommand(input, step(state, now), bond, personality, now, config, tz);
+          const result = handleMoodCommand(input, step(state, now), bond, personality, now, config, tz, {
+            ...(userId ? { userId } : {}),
+            ...(auth.senderIsOwner ? { senderIsOwner: true } : {}),
+          });
           if (!result) return state;
           output = result.text;
           return result.state;
@@ -268,12 +310,14 @@ export function createAffectCore(options: CoreOptions) {
     },
     async onSessionReset() {
       try {
+        await migrate();
         if (!globallyEnabled) return;
         const now = clock();
         await store.mutate((state) => {
           const ticked = step(state, now);
           return resetPadKeepMood(appendJournal(ticked, summarize(ticked), now), personality, now);
         });
+        await this.flush();
       } catch (error) {
         options.logger?.warn?.("affect: session reset skipped", error);
       }

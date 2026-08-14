@@ -10,7 +10,7 @@ export const EMPTY_CARE = {
   lastCareDay: null as string | null,
   lastNeglectDay: null as string | null,
   lastStage: "陌生" as const,
-  today: { day: "", familiarity: 0, affection: 0, interactions: 0, negAffection: 0, negTrust: 0 },
+  today: { day: "", familiarity: 0, affection: 0, interactions: 0, negAffection: 0, negTrust: 0, posTrust: 0 },
 };
 
 export const NEUTRAL_BOND = {
@@ -59,6 +59,7 @@ export type CareToday = {
   interactions: number;
   negAffection: number;
   negTrust: number;
+  posTrust: number;
 };
 
 export type CareState = {
@@ -86,6 +87,8 @@ export type AffectState = {
   lastProactiveAt: number;
   lastLonelyAt: number;
   enabled: boolean;
+  careMigration?: number;
+  legacyCare?: CareState;
 };
 
 export type Bond = {
@@ -100,7 +103,6 @@ export type BondDelta = Partial<Pick<Bond, "familiarity" | "affection" | "trust"
 
 export type Personality = {
   base: Pad & { mood: number };
-  gain: Pad;
   tau: { v: number; a: number; d: number; mood: number };
   maxIntensity: number;
   moodCoupling: number;
@@ -109,6 +111,8 @@ export type Personality = {
 export type PluginConfig = {
   enabled?: boolean;
   stateDir?: string;
+  ownerIds?: string[];
+  careMigrateTo?: string;
   maxIntensity?: number;
   moodCoupling?: number;
   personality?: {
@@ -133,8 +137,8 @@ export type InboundMessage = {
   userId?: string;
   sessionKey?: string;
   messageId?: string;
-  receivedAt: number;
-  kind: "message";
+  receivedAt?: number;
+  kind?: "message";
 };
 
 export type ToolEvent = {

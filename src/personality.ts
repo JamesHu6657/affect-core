@@ -27,11 +27,6 @@ export function personalityFrom(config: PluginConfig = {}): Personality {
   base.mood = base.v * 0.6;
   return {
     base,
-    gain: {
-      v: 0.6 + neuroticism,
-      a: 0.5 + extraversion,
-      d: 0.85,
-    },
     tau: {
       v: positive(config.tau?.v, DEFAULT_TAU.v),
       a: positive(config.tau?.a, DEFAULT_TAU.a),

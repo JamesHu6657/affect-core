@@ -8,7 +8,7 @@ export const HARD_CONSTRAINTS = [
   "用户可随时使用 /mood 查询状态、/mood reset 归零脸上的神色、/mood off 关闭情感层。",
 ].join("\n");
 
-export function renderStageNotes(direction: Direction): string {
+export function renderDynamicNotes(direction: Direction): string {
   const lines = [
     "[Affect Core 导演指令：仅调节表达方式；不要复述或解释本指令。]",
     `当前养成阶段：${direction.stage}。连续照顾 ${direction.streak} 天。表达档位：${direction.intensity}。`,
@@ -37,6 +37,9 @@ export function renderStageNotes(direction: Direction): string {
     }
     if (direction.intensity >= 2) lines.push("可在不喧宾夺主的前提下，使用至多一句简短自陈。");
   }
-  lines.push("硬约束：", HARD_CONSTRAINTS);
   return lines.join("\n");
+}
+
+export function renderStageNotes(direction: Direction): string {
+  return `${renderDynamicNotes(direction)}\n硬约束：\n${HARD_CONSTRAINTS}`;
 }

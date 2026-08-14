@@ -1,8 +1,38 @@
-# Affect Core 宠物养成版（v0.3）
+# Affect Core 宠物养成版（v0.3.2）
 
 仓库：https://github.com/JamesHu6657/affect-core  
 
 **还没部署到 OpenClaw 现网。** 现网仍是 v0.2。
+
+## 安装时必须加这一段
+
+外部插件的 `before_prompt_build` 默认会被 OpenClaw **静默忽略**（只打 warning，不抛错）。不写下面这段，PAD / `/mood` 会动，模型语气完全不变：
+
+```json
+{
+  "plugins": {
+    "allow": ["affect-core"],
+    "entries": {
+      "affect-core": {
+        "enabled": true,
+        "hooks": {
+          "allowConversationAccess": true
+        },
+        "config": {
+          "enabled": true,
+          "ownerIds": ["YOUR_TELEGRAM_USER_ID"],
+          "l1": { "enabled": false },
+          "proactive": { "enabled": false }
+        }
+      }
+    }
+  }
+}
+```
+
+启动日志里应看到 affect-core 提醒这条权限。若 gateway 出现 `typed hook "before_prompt_build" blocked`，就是没写 `allowConversationAccess`。
+
+`/mood` 人人可查；`/mood off|on|reset` 只允许 `ownerIds`（或命令上下文里的 `senderIsOwner`）。`proactive` 只产出建议，**不会发消息**。
 
 ## 先看什么
 

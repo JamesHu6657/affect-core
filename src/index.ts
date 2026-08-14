@@ -117,14 +117,20 @@ function register(apiUnknown: unknown) {
       return {};
     }
   };
+  logger?.warn?.(
+    "affect: require plugins.entries.affect-core.hooks.allowConversationAccess=true or before_prompt_build is silently ignored",
+  );
+  void core.migrate();
   api.on?.(
     "message_received",
     guarded("message hook", async (raw) => {
       const event = asRecord(raw);
+      const text = messageText(event);
+      if (text.trim().toLowerCase().startsWith("/mood")) return;
       const userId = senderId(event);
       const sessionKey = typeof event.sessionKey === "string" ? event.sessionKey : undefined;
       await core.onMessage({
-        text: messageText(event),
+        text,
         ...(userId ? { userId } : {}),
         ...(sessionKey ? { sessionKey } : {}),
         ...(typeof event.messageId === "string" ? { messageId: event.messageId } : {}),
@@ -162,14 +168,24 @@ function register(apiUnknown: unknown) {
       asId((ctx.requester as Record<string, unknown> | undefined)?.senderId);
     const sessionKey = typeof event.sessionKey === "string" ? event.sessionKey : typeof ctx.sessionKey === "string" ? ctx.sessionKey : undefined;
     const result = await core.beforeAgentReply(userId, sessionKey);
-    return result.systemAppend ? { appendSystemContext: result.systemAppend } : {};
+    return {
+      ...(result.systemAppend ? { appendSystemContext: result.systemAppend } : {}),
+      ...(result.appendContext ? { appendContext: result.appendContext } : {}),
+    };
   });
   api.on?.("before_prompt_build", injectPrompt);
-  api.on?.("before_agent_start", injectPrompt);
   api.on?.(
     "before_reset",
     guarded("session reset", async () => {
       await core.onSessionReset();
+    }),
+  );
+  api.on?.(
+    "session_end",
+    guarded("session end", async (raw) => {
+      const event = asRecord(raw);
+      const key = typeof event.sessionKey === "string" ? event.sessionKey : undefined;
+      core.endSession(key, senderId(event));
     }),
   );
   api.on?.(
@@ -197,7 +213,8 @@ function register(apiUnknown: unknown) {
       const ctx = asRecord(raw);
       const args = typeof ctx.args === "string" ? ctx.args : "";
       const input = args.trim() !== "" ? `/mood ${args.trim()}` : "/mood";
-      const text = await core.command(input, senderId(ctx));
+      const senderIsOwner = ctx.senderIsOwner === true;
+      const text = await core.command(input, senderId(ctx), { senderIsOwner });
       return text ? { text } : {};
     },
   });

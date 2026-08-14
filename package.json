@@ -1,17 +1,18 @@
 {
   "name": "openclaw-affect-core",
-  "version": "0.3.1-pet",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "description": "OpenClaw affect-core v0.3: pet-like sustainable cultivation plus an inertial affect layer.",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.22.3"
   },
   "main": "./src/index.ts",
   "scripts": {
     "test": "node --test --experimental-strip-types test/*.test.ts",
     "simulate": "node --experimental-strip-types scripts/simulate-month.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
   },
   "openclaw": {
     "extensions": ["./src/index.ts"],

@@ -193,6 +193,26 @@ describe("pet core", () => {
     }
   });
 
+  it("ownerIds block strangers from /mood reset", async () => {
+    const nowRef = { now: Date.parse("2026-08-14T04:00:00.000Z") };
+    const dir = await (await import("node:fs/promises")).mkdtemp((await import("node:path")).join((await import("node:os")).tmpdir(), "affect-owner-"));
+    const core = createAffectCore({
+      dir,
+      config: { enabled: true, ownerIds: ["owner"] },
+      now: () => nowRef.now,
+    });
+    try {
+      await core.onMessage({ text: "谢谢你", userId: "owner", receivedAt: nowRef.now, kind: "message" });
+      const denied = await core.command("/mood reset", "guest");
+      assert.match(String(denied), /只有主人/);
+      const allowed = await core.command("/mood reset", "owner");
+      assert.match(String(allowed), /归零/);
+    } finally {
+      await core.flush();
+      await (await import("node:fs/promises")).rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("session reset keeps the care ledger", async () => {
     const nowRef = { now: Date.parse("2026-08-14T04:00:00.000Z") };
     const { core, close } = await withCore(nowRef);

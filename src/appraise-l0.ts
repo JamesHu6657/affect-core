@@ -1,6 +1,6 @@
 import type { Appraisal, InboundMessage, Pad, ToolEvent } from "./types.ts";
 
-const EVENT: Record<string, Pad> = {
+const EVENT = {
   achieve: { v: 0.22, a: 0.1, d: 0.18 },
   praise: { v: 0.3, a: 0.16, d: 0.12 },
   novelty: { v: 0.12, a: 0.28, d: -0.08 },

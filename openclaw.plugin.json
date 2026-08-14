@@ -2,7 +2,7 @@
   "id": "affect-core",
   "name": "Affect Core",
   "description": "Pet-like sustainable cultivation plus an inertial, bounded affect layer. Local review build.",
-  "version": "0.3.0-pet-review",
+  "version": "0.3.2",
   "main": "./src/index.ts",
   "activation": { "onStartup": true },
   "openclaw": {
@@ -16,7 +16,27 @@
     "properties": {
       "enabled": { "type": "boolean", "default": false },
       "stateDir": { "type": "string" },
+      "ownerIds": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Telegram/user ids allowed to run /mood off|on|reset. Empty = allow all (private bot)."
+      },
+      "careMigrateTo": {
+        "type": "string",
+        "description": "If leftover global care cannot be assigned, copy it to this userId."
+      },
       "maxIntensity": { "type": "integer", "minimum": 0, "maximum": 3, "default": 2 },
+      "moodCoupling": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.25 },
+      "tau": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "v": { "type": "number", "exclusiveMinimum": 0, "default": 55 },
+          "a": { "type": "number", "exclusiveMinimum": 0, "default": 14 },
+          "d": { "type": "number", "exclusiveMinimum": 0, "default": 70 },
+          "mood": { "type": "number", "exclusiveMinimum": 0, "default": 900 }
+        }
+      },
       "personality": {
         "type": "object",
         "additionalProperties": false,
@@ -50,6 +70,7 @@
       "proactive": {
         "type": "object",
         "additionalProperties": false,
+        "description": "Suggestion only. Heartbeat never sends outbound messages and does not advance lastProactiveAt.",
         "properties": {
           "enabled": { "type": "boolean", "default": false },
           "quietHours": {

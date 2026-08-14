@@ -78,6 +78,10 @@ export function sanitize(raw: unknown, personality: Personality, now = Date.now(
     lastProactiveAt: finite(input.lastProactiveAt, 0),
     lastLonelyAt: finite(input.lastLonelyAt, 0),
     enabled: input.enabled !== false,
+    careMigration: typeof input.careMigration === "number" && Number.isFinite(input.careMigration) ? input.careMigration : 0,
+    ...(input.legacyCare && typeof input.legacyCare === "object"
+      ? { legacyCare: seedCare({ care: input.legacyCare as AffectState["care"] }, now) }
+      : {}),
   };
 }
 

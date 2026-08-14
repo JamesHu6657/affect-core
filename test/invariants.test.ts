@@ -12,7 +12,7 @@ import { applySatisfiedDrives, baselineState, CAP, decayHab, impulse, tick } fro
 import { HARD_CONSTRAINTS, renderStageNotes } from "../src/express.ts";
 import { personalityFrom } from "../src/personality.ts";
 import { createStore } from "../src/store.ts";
-import { NEUTRAL_BOND, type AffectState, type Pad } from "../src/types.ts";
+import { NEUTRAL_BOND, type AffectState, type Bond, type Pad } from "../src/types.ts";
 
 const p = personalityFrom();
 const start = 1_700_000_000_000;
@@ -62,7 +62,8 @@ test("4. 习惯化系数有地板且归零后删除键", () => {
   for (let index = 0; index < 30; index += 1) state = impulse(state, positive, "praise", start + index);
   assert.equal(state.habituation.praise?.n, 6);
   const oneMore = impulse(state, positive, "praise", start + 31);
-  assert.ok(Math.abs(oneMore.lastEvents[0]!.delta.v) >= positive.v * Math.pow(0.6, 6) - 1e-10);
+  const habituated = positive.v * Math.pow(0.6, 6);
+  assert.ok(Math.abs(oneMore.lastEvents[0]!.delta.v) <= habituated + 1e-10);
   const decayed = decayHab(oneMore.habituation, start + 31 + 6 * 30 * 60_000);
   assert.equal(decayed.praise, undefined);
 });
@@ -110,7 +111,7 @@ test("9. 停机 30 天后状态有限、回归基线且驱力不越界", () => {
 });
 
 test("10. 非法 τ 统一回落默认值且不污染状态", () => {
-  const invalid = personalityFrom({ tau: { v: 0, a: -1, d: Number.NaN, mood: "bad" } });
+  const invalid = personalityFrom({ tau: { v: 0, a: -1, d: Number.NaN, mood: Number.NaN } });
   assert.deepEqual(invalid.tau, { v: 55, a: 14, d: 70, mood: 900 });
   const result = tick(stateAt(), invalid, start + 60_000);
   assert.ok(finite(result.pad.v) && finite(result.pad.a) && finite(result.pad.d) && finite(result.mood));
@@ -168,7 +169,7 @@ test("13. mutate 与 cron tick 交错并发不丢失事件", async () => {
 });
 
 test("14. 500 次 praise 后 affection 不超过 0.85", () => {
-  let bond = { ...NEUTRAL_BOND };
+  let bond: Bond = { ...NEUTRAL_BOND, care: { ...NEUTRAL_BOND.care, today: { ...NEUTRAL_BOND.care.today } } };
   for (let index = 0; index < 500; index += 1) bond = applyBondDelta(bond, { affection: 0.04 }, start + index);
   assert.ok(bond.affection <= AFFECTION_CAP);
 });

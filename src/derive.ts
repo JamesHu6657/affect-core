@@ -29,7 +29,7 @@ function latestLabelTag(state: AffectState, now: number): string | undefined {
 
 export function emotionalLabel(state: AffectState, now = Date.now()): string {
   const tagged = latestLabelTag(state, now);
-  if (tagged) return LABEL_BY_TAG[tagged];
+  if (tagged) return LABEL_BY_TAG[tagged] ?? "平和";
   if (state.pad.v > 0.25 && state.pad.a > 0.2) return "明朗";
   if (state.pad.v < -0.25 && state.pad.a < 0) return "疲惫";
   if (state.pad.v < -0.25) return "谨慎";
@@ -61,7 +61,8 @@ export function derive(state: AffectState, bond: Bond, personality: Personality,
   intensity = Math.min(intensity, personality.maxIntensity, STAGE_INTENSITY_CAP[stage]);
   const warmthSignal = state.pad.v * 0.55 + state.mood * 0.45;
   const recent = latestEvent(state);
-  return {
+  const recentTag = latestLabelTag(state, now) ?? recent?.tag;
+  const direction: Direction = {
     label,
     intensity,
     warmth: warmthSignal > 0.16 ? "warm" : warmthSignal < -0.16 ? "cool" : "neutral",
@@ -76,9 +77,10 @@ export function derive(state: AffectState, bond: Bond, personality: Personality,
       curiosity: fullness(state.drives.curiosity),
       order: fullness(state.drives.order),
     },
-    ...(latestLabelTag(state, now) || recent?.tag ? { recentTag: latestLabelTag(state, now) ?? recent?.tag } : {}),
-    ...(recent?.summary ? { recentSummary: recent.summary } : {}),
   };
+  if (recentTag) direction.recentTag = recentTag;
+  if (recent?.summary) direction.recentSummary = recent.summary;
+  return direction;
 }
 
 export function meter(unit: number, width = 6): string {
