@@ -1,6 +1,6 @@
 import { appraiseCron, appraiseL0, appraiseToolResult, asContact } from "./appraise-l0.ts";
 import { createL1Appraiser, mapL1ToPad, needsL1, type L1Adapter } from "./appraise-l1.ts";
-import { createBondStore } from "./bonds.ts";
+import { applyBondDelta, createBondStore } from "./bonds.ts";
 import { tokenBucket } from "./budget.ts";
 import {
   applyCareLedger,
@@ -52,6 +52,7 @@ export function createAffectCore(options: CoreOptions) {
   const step = (state: AffectState, now: number) => tick(state, personality, now, { tz });
 
   let lastUserId: string | undefined;
+  const lastSenderBySession = new Map<string, string>();
 
   const applyImpulse = async (
     appraisal: { tag: string; delta: { v: number; a: number; d: number }; source: string; summary: string },
@@ -69,23 +70,20 @@ export function createAffectCore(options: CoreOptions) {
 
   const growBond = async (userId: string | undefined, familiarity: number, now: number) => {
     if (!userId) return;
-    await store.mutate((state) => {
-      const noted = noteStage(state.care, familiarity);
-      if (!noted.promoted) return { ...state, care: noted.care };
-      return appendJournal(
-        impulse(
-          { ...state, care: noted.care },
-          L0_EVENTS.stage,
-          "stage",
-          now,
-          "care",
-          `养成到了「${noted.promoted}」`,
-          personality.moodCoupling,
-        ),
-        `升到 ${noted.promoted}`,
-        now,
-      );
+    let promoted: string | null = null;
+    await bonds.mutate(userId, (bond) => {
+      const noted = noteStage(hydrateStage(bond.care, familiarity), familiarity);
+      promoted = noted.promoted;
+      return { ...bond, care: noted.care };
     });
+    if (!promoted) return;
+    await store.mutate((state) =>
+      appendJournal(
+        impulse(state, L0_EVENTS.stage, "stage", now, "care", `养成到了「${promoted}」`, personality.moodCoupling),
+        `升到 ${promoted}`,
+        now,
+      ),
+    );
   };
 
   return {
@@ -94,14 +92,17 @@ export function createAffectCore(options: CoreOptions) {
     async onMessage(message: InboundMessage) {
       try {
         if (!globallyEnabled) return;
-        const command = await this.command(message.text, message.userId);
+        const command = await this.command(message.text ?? "", message.userId);
         if (command !== null) return { reply: command };
         if (!(await store.read()).enabled) return;
         const now = clock();
-        if (message.userId) lastUserId = message.userId;
         if (message.userId) {
-          const existing = await bonds.read(message.userId);
-          await store.mutate((state) => ({ ...state, care: hydrateStage(state.care, existing.familiarity) }));
+          lastUserId = message.userId;
+          if (message.sessionKey) lastSenderBySession.set(message.sessionKey, message.userId);
+          await bonds.mutate(message.userId, (bond) => ({
+            ...bond,
+            care: hydrateStage(bond.care, bond.familiarity),
+          }));
         }
         const l0 = appraiseL0(message);
         let appraisal = l0;
@@ -126,10 +127,8 @@ export function createAffectCore(options: CoreOptions) {
           let next = step(state, now);
           if (appraisal) {
             next = impulse(next, appraisal.delta, appraisal.tag, now, appraisal.source, appraisal.summary, personality.moodCoupling);
-            const ledger = applyCareLedger(next.care, appraisal.tag, now, tz, caps);
-            bondDelta = ledger.bond;
             next = applySatisfiedDrives(
-              { ...next, care: ledger.care, lastInteractionAt: now },
+              { ...next, lastInteractionAt: now },
               [appraisal.tag],
               appraisal.tag === "contact" ? ["contact"] : [],
             );
@@ -137,7 +136,11 @@ export function createAffectCore(options: CoreOptions) {
           return next;
         });
         if (message.userId && appraisal) {
-          const after = await bonds.update(message.userId, bondDelta);
+          const after = await bonds.mutate(message.userId, (bond) => {
+            const ledger = applyCareLedger(bond.care, appraisal!.tag, now, tz, caps);
+            bondDelta = ledger.bond;
+            return applyBondDelta({ ...bond, care: ledger.care }, ledger.bond, now, true);
+          });
           await growBond(message.userId, after.familiarity, now);
         }
         await this.flush();
@@ -159,17 +162,19 @@ export function createAffectCore(options: CoreOptions) {
           await store.mutate((state) => {
             let next = impulse(step(state, now), appraisal.delta, appraisal.tag, now, appraisal.source, appraisal.summary, personality.moodCoupling);
             if (appraisal.tag === "achieve") next = applySatisfiedDrives(next, [appraisal.tag], ["order"]);
-            const humanToday = Boolean(sender) && state.care.lastCareDay === civilDate(now, tz);
-            if (humanToday) {
-              const ledger = applyCareLedger(next.care, appraisal.tag, now, tz, caps);
-              bondDelta = ledger.bond;
-              next = { ...next, care: ledger.care };
-            }
             return sender ? { ...next, lastInteractionAt: now } : next;
           });
-          if (sender && Object.keys(bondDelta).length > 0) {
-            const after = await bonds.update(sender, bondDelta);
-            await growBond(sender, after.familiarity, now);
+          if (sender) {
+            const current = await bonds.read(sender);
+            const humanToday = current.care.lastCareDay === civilDate(now, tz);
+            if (humanToday) {
+              const after = await bonds.mutate(sender, (bond) => {
+                const ledger = applyCareLedger(bond.care, appraisal.tag, now, tz, caps);
+                bondDelta = ledger.bond;
+                return applyBondDelta({ ...bond, care: ledger.care }, ledger.bond, now, true);
+              });
+              await growBond(sender, after.familiarity, now);
+            }
           }
         }
         await this.flush();
@@ -177,17 +182,15 @@ export function createAffectCore(options: CoreOptions) {
         options.logger?.warn?.("affect: tool appraisal skipped", error);
       }
     },
-    async beforeAgentReply(userId?: string) {
+    async beforeAgentReply(userId?: string, sessionKey?: string) {
       try {
         if (!globallyEnabled) return {};
         const now = clock();
         const state = await store.mutate((current) => step(current, now));
         if (!state.enabled) return {};
-        const resolved = userId ?? lastUserId ?? "anonymous";
+        const resolved = userId ?? (sessionKey ? lastSenderBySession.get(sessionKey) : undefined) ?? lastUserId ?? "anonymous";
         const bond = await bonds.read(resolved);
-        await store.mutate((current) => ({ ...current, care: hydrateStage(current.care, bond.familiarity) }));
-        const hydrated = await store.read();
-        return { systemAppend: renderStageNotes(derive(hydrated, bond, personality, now)) };
+        return { systemAppend: renderStageNotes(derive(state, bond, personality, now)) };
       } catch (error) {
         options.logger?.warn?.("affect: stage-note injection skipped", error);
         return {};
@@ -204,10 +207,12 @@ export function createAffectCore(options: CoreOptions) {
           driveHighForMs = next.driveHighSince !== null ? Math.max(0, now - next.driveHighSince) : 0;
           return next;
         });
-        const neglect = applyNeglectLedger(snapshot.care, now, tz);
-        if (neglect.bond.affection || neglect.bond.trust) {
-          await store.mutate((state) => ({ ...state, care: neglect.care }));
-          await bonds.updateAll(neglect.bond, false);
+        for (const [userId, bond] of await bonds.entries()) {
+          const neglect = applyNeglectLedger(bond.care, now, tz);
+          if (!neglect.bond.affection && !neglect.bond.trust) continue;
+          await bonds.mutate(userId, (current) =>
+            applyBondDelta({ ...current, care: neglect.care }, neglect.bond, now, false),
+          );
         }
         const maxDrive = Math.max(...Object.values(snapshot.drives));
         const alreadyLonely = snapshot.lastLonelyAt > snapshot.lastInteractionAt;

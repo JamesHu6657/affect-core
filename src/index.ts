@@ -104,6 +104,9 @@ function register(apiUnknown: unknown) {
   const config = readConfig(api);
   const dir = readStateDir(api, config);
   const logger = adaptLogger(api);
+  if (config.l1?.enabled === true) {
+    logger?.warn?.("affect: L1 is experimental (keyword stub, not an LLM) and is off unless you set l1.enabled");
+  }
   const l1 = config.l1?.enabled === true ? createL1Appraiser(heuristicL1()) : null;
   const core = createAffectCore({ dir, config, ...(l1 ? { l1 } : {}), ...(logger ? { logger } : {}) });
   const guarded = (label: string, fn: (...args: unknown[]) => Promise<unknown>) => async (...args: unknown[]) => {
@@ -119,9 +122,11 @@ function register(apiUnknown: unknown) {
     guarded("message hook", async (raw) => {
       const event = asRecord(raw);
       const userId = senderId(event);
+      const sessionKey = typeof event.sessionKey === "string" ? event.sessionKey : undefined;
       await core.onMessage({
         text: messageText(event),
         ...(userId ? { userId } : {}),
+        ...(sessionKey ? { sessionKey } : {}),
         ...(typeof event.messageId === "string" ? { messageId: event.messageId } : {}),
         receivedAt: typeof event.timestamp === "number" ? event.timestamp : Date.now(),
         kind: "message",
@@ -155,7 +160,8 @@ function register(apiUnknown: unknown) {
       asId(ctx.senderId) ??
       asId((ctx.channelContext as Record<string, unknown> | undefined)?.sender) ??
       asId((ctx.requester as Record<string, unknown> | undefined)?.senderId);
-    const result = await core.beforeAgentReply(userId);
+    const sessionKey = typeof event.sessionKey === "string" ? event.sessionKey : typeof ctx.sessionKey === "string" ? ctx.sessionKey : undefined;
+    const result = await core.beforeAgentReply(userId, sessionKey);
     return result.systemAppend ? { appendSystemContext: result.systemAppend } : {};
   });
   api.on?.("before_prompt_build", injectPrompt);

@@ -28,7 +28,7 @@ export function handleMoodCommand(
   }
   if (command === "/mood") {
     const direction = derive(state, bond, personality, now);
-    const remaining = remainingCare(state.care, now, timeZone, readCareConfig(config));
+    const remaining = remainingCare(bond.care ?? state.care, now, timeZone, readCareConfig(config));
     return { state, text: renderStatus(direction, remaining) };
   }
   return { state, text: "用法：/mood、/mood reset、/mood off、/mood on" };

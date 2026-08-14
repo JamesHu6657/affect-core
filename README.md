@@ -16,7 +16,7 @@
 需要 Node 22+。
 
 ```powershell
-cd D:\FM_dev\workspace\affect-core-pet
+cd D:\FM_dev\affect-core
 npm test
 npm run simulate
 ```
@@ -33,3 +33,5 @@ npm run simulate
 - 阶段门槛（0.15 / 0.35 / 0.60 / 0.82）
 - `/mood reset` 只洗脸、不拆养成 — 要不要改
 - 满意后再说部署；不要直接拷进 `/root/.openclaw`
+
+L1 默认关，是实验性关键词占位，不是大模型。养成账本按 `userId` 分开：甲说话保不住乙的连陪。`npm test` 现含 v0.2 数值安全网（52 项）。

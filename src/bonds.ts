@@ -1,7 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { emptyCare, seedCare } from "./care.ts";
 import { clampUnit } from "./dynamics.ts";
-import { NEUTRAL_BOND, type Bond, type BondDelta } from "./types.ts";
+import { NEUTRAL_BOND, type Bond, type BondDelta, type CareState } from "./types.ts";
 
 const AFFECTION_CAP = 0.85;
 
@@ -14,6 +15,7 @@ function sanitizeBond(raw: unknown, now = Date.now()): Bond {
     affection: Math.min(AFFECTION_CAP, clampUnit(finite(value.affection, 0))),
     trust: clampUnit(finite(value.trust, NEUTRAL_BOND.trust)),
     lastSeenAt: finite(value.lastSeenAt, now),
+    care: seedCare({ care: value.care as CareState }, now),
   };
 }
 
@@ -29,6 +31,7 @@ export function applyBondDelta(bond: Bond, delta: BondDelta, now = Date.now(), t
     ),
     trust: clampUnit(bond.trust + (trustDelta > 0 ? trustDelta * 0.3 : trustDelta)),
     lastSeenAt: touch ? now : bond.lastSeenAt,
+    care: bond.care ?? emptyCare(),
   };
 }
 
@@ -71,19 +74,19 @@ export function createBondStore(dir: string) {
         dirty = true;
         return bonds[userId];
       }),
-    updateAll: (delta: BondDelta, touch = false) =>
+    mutate: (userId: string, fn: (bond: Bond) => Bond) =>
       run(async () => {
         const bonds = await load();
         const now = Date.now();
-        for (const [userId, bond] of Object.entries(bonds)) {
-          bonds[userId] = applyBondDelta(bond, delta, now, touch);
-        }
+        const current = sanitizeBond(bonds[userId], now);
+        bonds[userId] = sanitizeBond(fn(current), now);
         dirty = true;
+        return bonds[userId];
       }),
-    ids: () =>
+    entries: () =>
       run(async () => {
         const bonds = await load();
-        return Object.keys(bonds);
+        return Object.entries(bonds);
       }),
     flush: () =>
       run(async () => {

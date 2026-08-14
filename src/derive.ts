@@ -69,7 +69,7 @@ export function derive(state: AffectState, bond: Bond, personality: Personality,
     assertiveness: state.pad.d > 0.22 ? "confident" : state.pad.d < -0.22 ? "tentative" : "balanced",
     address: bond.familiarity > 0.6 && bond.affection > 0.35 ? "familiar" : bond.familiarity > 0.2 ? "direct" : "formal",
     stage,
-    streak: state.care.streak,
+    streak: bond.care?.streak ?? 0,
     needs: {
       contact: fullness(state.drives.contact),
       recognition: fullness(state.drives.recognition),

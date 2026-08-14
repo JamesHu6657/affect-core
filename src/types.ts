@@ -5,11 +5,20 @@ export const DEFAULT_DRIVES = {
   order: 0,
 };
 
+export const EMPTY_CARE = {
+  streak: 0,
+  lastCareDay: null as string | null,
+  lastNeglectDay: null as string | null,
+  lastStage: "陌生" as const,
+  today: { day: "", familiarity: 0, affection: 0, interactions: 0, negAffection: 0, negTrust: 0 },
+};
+
 export const NEUTRAL_BOND = {
   familiarity: 0,
   affection: 0,
   trust: 0.5,
   lastSeenAt: 0,
+  care: { ...EMPTY_CARE, today: { ...EMPTY_CARE.today } },
 };
 
 export type DriveKey = keyof typeof DEFAULT_DRIVES;
@@ -48,6 +57,8 @@ export type CareToday = {
   familiarity: number;
   affection: number;
   interactions: number;
+  negAffection: number;
+  negTrust: number;
 };
 
 export type CareState = {
@@ -82,6 +93,7 @@ export type Bond = {
   affection: number;
   trust: number;
   lastSeenAt: number;
+  care: CareState;
 };
 
 export type BondDelta = Partial<Pick<Bond, "familiarity" | "affection" | "trust">>;
@@ -119,6 +131,7 @@ export type PluginConfig = {
 export type InboundMessage = {
   text: string;
   userId?: string;
+  sessionKey?: string;
   messageId?: string;
   receivedAt: number;
   kind: "message";

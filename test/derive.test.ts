@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { emptyCare, remainingCare } from "../src/care.ts";
 import { derive, emotionalLabel, renderStatus } from "../src/derive.ts";
 import { personalityFrom } from "../src/personality.ts";
-import type { AffectState } from "../src/types.ts";
+import { NEUTRAL_BOND, type AffectState } from "../src/types.ts";
 
 const personality = personalityFrom({ enabled: true, maxIntensity: 2 });
 const now = Date.parse("2026-08-14T04:00:00.000Z");
@@ -30,7 +30,7 @@ function state(partial: Partial<AffectState>): AffectState {
   };
 }
 
-const stranger = { familiarity: 0, affection: 0, trust: 0.5, lastSeenAt: now };
+const stranger = { ...NEUTRAL_BOND, lastSeenAt: now };
 
 describe("derive", () => {
   it("names the latest fresh event instead of collapsing to 平和", () => {
@@ -64,10 +64,11 @@ describe("derive", () => {
 
   it("renders a pet status card", () => {
     const current = state({
-      care: { ...emptyCare("2026-08-14"), streak: 3, lastCareDay: "2026-08-14", today: { day: "2026-08-14", familiarity: 0.01, affection: 0.004, interactions: 4 } },
+      care: { ...emptyCare("2026-08-14"), streak: 3, lastCareDay: "2026-08-14", today: { day: "2026-08-14", familiarity: 0.01, affection: 0.004, interactions: 4, negAffection: 0, negTrust: 0 } },
       lastEvents: [{ tag: "contact", at: now, source: "l0", delta: { v: 0.05, a: 0.04, d: 0.02 }, summary: "你继续陪她说话" }],
     });
-    const text = renderStatus(derive(current, stranger, personality, now), remainingCare(current.care, now, "Asia/Shanghai"));
+    const bond = { ...stranger, care: current.care };
+    const text = renderStatus(derive(current, bond, personality, now), remainingCare(bond.care, now, "Asia/Shanghai"));
     assert.match(text, /安定/);
     assert.match(text, /陌生/);
     assert.match(text, /连续照顾 3 天/);

@@ -40,8 +40,9 @@
       "l1": {
         "type": "object",
         "additionalProperties": false,
+        "description": "Experimental. Keyword stub only, not an LLM. Default off. Most cue words are already handled by L0.",
         "properties": {
-          "enabled": { "type": "boolean", "default": false },
+          "enabled": { "type": "boolean", "default": false, "description": "Leave false unless you are testing the experimental L1 stub." },
           "maxRatePerHour": { "type": "integer", "minimum": 0, "maximum": 120, "default": 12 },
           "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 5000, "default": 1500 }
         }
