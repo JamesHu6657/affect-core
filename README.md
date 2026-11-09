@@ -1,4 +1,4 @@
-# Affect Core 宠物养成版（v0.3.2）
+# Affect Core 宠物养成版（v0.3.3）
 
 仓库：https://github.com/JamesHu6657/affect-core  
 
@@ -33,6 +33,26 @@
 启动日志里应看到 affect-core 提醒这条权限。若 gateway 出现 `typed hook "before_prompt_build" blocked`，就是没写 `allowConversationAccess`。
 
 `/mood` 人人可查；`/mood off|on|reset` 只允许 `ownerIds`（或命令上下文里的 `senderIsOwner`）。`proactive` 只产出建议，**不会发消息**。
+
+## 心跳看得到对话（v0.3.3）
+
+OpenClaw 心跳是系统轮次：没有 sender；开了 `heartbeat.isolatedSession: true` 时还是全新会话，看不到聊天历史。之前插件在心跳里会落到进程内的 `lastUserId`（gateway 一重启就丢）甚至 `anonymous`，导演指令按「陌生人」写，也没有任何最近对话。
+
+现在：
+
+- 普通轮次（`before_prompt_build` / `agent_end`）把最近对话尾巴存进 `stateDir/recent.json`（仅 user/assistant 文本，去掉工具输出和本插件自己的注入，默认最多 8 条、每条 280 字、合计 1800 字，权限 0600）。
+- 新增 `heartbeat_prompt_contribution`：心跳时注入「正确的人」的导演指令 + 最近对话节选。心跳本身就在同一会话时不重复注入历史；超过 `maxAgeHours`（默认 24）不注入。
+- 发送者回退顺序：本轮 sender → 会话映射 → 进程内最近 sender → `recent.json` 里持久化的 sender → `ownerIds[0]`。
+- `message_received` 现在从 hook ctx 读 `sessionKey` / `senderId`（之前只读 event，会话映射一直是空的）。
+- 旧版 host 没有 `heartbeat_prompt_contribution` 时，`before_prompt_build` 在心跳轮次自己补上同样内容；新版 host 不会重复。
+
+可选配置（`config` 内）：
+
+```json
+"heartbeatContext": { "enabled": true, "maxTurns": 8, "maxCharsPerTurn": 280, "maxTotalChars": 1800, "maxAgeHours": 24 }
+```
+
+`agent_end` 也需要 `allowConversationAccess`（上面那段已经包含）。
 
 ## 先看什么
 

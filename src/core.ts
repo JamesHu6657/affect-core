@@ -18,6 +18,7 @@ import { HARD_CONSTRAINTS, renderDynamicNotes } from "./express.ts";
 import { planCareMigration } from "./migrate.ts";
 import { personalityFrom } from "./personality.ts";
 import { createStore } from "./store.ts";
+import { createRecentStore, extractTurns, readRecentLimits, renderRecent } from "./recent.ts";
 import type { AffectState, InboundMessage, PluginConfig, ToolEvent } from "./types.ts";
 
 const PROACTIVE_SILENCE_MS = 2 * 60 * 60 * 1000;
@@ -53,6 +54,24 @@ export function createAffectCore(options: CoreOptions) {
 
   let lastUserId: string | undefined;
   const lastSenderBySession = new Map<string, string>();
+  const recent = createRecentStore(options.dir);
+  const heartbeatConfig = config.heartbeatContext ?? {};
+  const heartbeatContextEnabled = heartbeatConfig.enabled !== false;
+  const recentLimits = readRecentLimits(heartbeatConfig);
+  const recentMaxAgeMs =
+    (typeof heartbeatConfig.maxAgeHours === "number" && Number.isFinite(heartbeatConfig.maxAgeHours) && heartbeatConfig.maxAgeHours > 0
+      ? heartbeatConfig.maxAgeHours
+      : 24) * 60 * 60 * 1000;
+  const ownerFallback = Array.isArray(config.ownerIds) && typeof config.ownerIds[0] === "string" ? config.ownerIds[0] : undefined;
+  // Heartbeats have no sender. lastUserId is process memory and is gone after a
+  // gateway restart, so fall back to the persisted last sender, then the owner.
+  const resolveUser = async (userId?: string, sessionKey?: string) =>
+    userId ??
+    (sessionKey ? lastSenderBySession.get(sessionKey) : undefined) ??
+    lastUserId ??
+    (await recent.read())?.userId ??
+    ownerFallback ??
+    "anonymous";
   let migrated = false;
 
   const migrate = async () => {
@@ -133,6 +152,20 @@ export function createAffectCore(options: CoreOptions) {
         if (message.userId) {
           lastUserId = message.userId;
           if (message.sessionKey) lastSenderBySession.set(message.sessionKey, message.userId);
+          const sender = message.userId;
+          const key = message.sessionKey;
+          await recent.update((current) => {
+            const sameSession = !key || current?.sessionKey === key;
+            if (current && current.userId === sender && sameSession) return current;
+            const sessionKey = key ?? current?.sessionKey;
+            return {
+              version: 1,
+              ...(sessionKey ? { sessionKey } : {}),
+              userId: sender,
+              updatedAt: current?.updatedAt ?? now,
+              turns: sameSession ? current?.turns ?? [] : [],
+            };
+          });
           await bonds.mutate(message.userId, (bond) => ({
             ...bond,
             care: hydrateStage(bond.care, bond.familiarity),
@@ -224,14 +257,63 @@ export function createAffectCore(options: CoreOptions) {
         const now = clock();
         const state = await store.mutate((current) => step(current, now));
         if (!state.enabled) return {};
-        const resolved = userId ?? (sessionKey ? lastSenderBySession.get(sessionKey) : undefined) ?? lastUserId ?? "anonymous";
-        const bond = await bonds.read(resolved);
+        const bond = await bonds.read(await resolveUser(userId, sessionKey));
         return {
           systemAppend: HARD_CONSTRAINTS,
           appendContext: renderDynamicNotes(derive(state, bond, personality, now)),
         };
       } catch (error) {
         options.logger?.warn?.("affect: stage-note injection skipped", error);
+        return {};
+      }
+    },
+    /** Remember the tail of a real (non-heartbeat) conversation for later heartbeats. */
+    async recordConversation(messages: unknown, meta: { sessionKey?: string; userId?: string } = {}) {
+      try {
+        if (!globallyEnabled || !heartbeatContextEnabled) return;
+        const turns = extractTurns(messages, recentLimits);
+        if (turns.length === 0) return;
+        const now = clock();
+        await recent.update((current) => {
+          const sameSession = !meta.sessionKey || current?.sessionKey === meta.sessionKey;
+          const userId = meta.userId ?? (meta.sessionKey ? lastSenderBySession.get(meta.sessionKey) : undefined) ?? (sameSession ? current?.userId : undefined) ?? lastUserId;
+          const sessionKey = meta.sessionKey ?? current?.sessionKey;
+          return {
+            version: 1,
+            ...(sessionKey ? { sessionKey } : {}),
+            ...(userId ? { userId } : {}),
+            updatedAt: now,
+            turns,
+          };
+        });
+      } catch (error) {
+        options.logger?.warn?.("affect: conversation snapshot skipped", error);
+      }
+    },
+    /** Context for heartbeat_prompt_contribution: director notes for the right person plus the recent tail. */
+    async heartbeatContext(sessionKey?: string) {
+      try {
+        await migrate();
+        if (!globallyEnabled) return {};
+        const now = clock();
+        const state = await store.mutate((current) => step(current, now));
+        if (!state.enabled) return {};
+        const snapshot = await recent.read();
+        const bond = await bonds.read(await resolveUser(undefined, undefined));
+        const parts = [renderDynamicNotes(derive(state, bond, personality, now))];
+        const historyAlreadyVisible = Boolean(sessionKey && snapshot?.sessionKey && snapshot.sessionKey === sessionKey);
+        if (
+          heartbeatContextEnabled &&
+          snapshot &&
+          !historyAlreadyVisible &&
+          snapshot.turns.length > 0 &&
+          now - snapshot.updatedAt <= recentMaxAgeMs
+        ) {
+          parts.push(renderRecent(snapshot, now));
+        }
+        return { appendContext: parts.filter(Boolean).join("\n\n") };
+      } catch (error) {
+        options.logger?.warn?.("affect: heartbeat context skipped", error);
         return {};
       }
     },

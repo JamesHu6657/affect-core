@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { createL1Appraiser } from "./appraise-l1.ts";
 import { createAffectCore } from "./core.ts";
+import { HARD_CONSTRAINTS } from "./express.ts";
 import type { PluginConfig } from "./types.ts";
 
 const HEARTBEAT_MS = 5 * 60 * 1000;
@@ -57,6 +58,10 @@ function senderId(raw: Record<string, unknown>): string | undefined {
     if (value) return value;
   }
   return undefined;
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
 function messageText(raw: Record<string, unknown>): string {
@@ -123,12 +128,14 @@ function register(apiUnknown: unknown) {
   void core.migrate();
   api.on?.(
     "message_received",
-    guarded("message hook", async (raw) => {
+    guarded("message hook", async (raw, ctxRaw) => {
       const event = asRecord(raw);
+      const ctx = asRecord(ctxRaw);
       const text = messageText(event);
       if (text.trim().toLowerCase().startsWith("/mood")) return;
-      const userId = senderId(event);
-      const sessionKey = typeof event.sessionKey === "string" ? event.sessionKey : undefined;
+      // OpenClaw puts correlation fields on the hook context, not the event.
+      const userId = senderId(event) ?? asId(ctx.senderId);
+      const sessionKey = stringField(event.sessionKey) ?? stringField(ctx.sessionKey);
       await core.onMessage({
         text,
         ...(userId ? { userId } : {}),
@@ -158,15 +165,40 @@ function register(apiUnknown: unknown) {
       });
     }),
   );
+  // Runs whose heartbeat context was already supplied by heartbeat_prompt_contribution.
+  const heartbeatServed = new Set<string>();
+  const markServed = (runId: string | undefined) => {
+    if (!runId) return;
+    heartbeatServed.add(runId);
+    if (heartbeatServed.size > 64) heartbeatServed.delete(heartbeatServed.values().next().value as string);
+  };
+  const promptUser = (event: Record<string, unknown>, ctx: Record<string, unknown>) =>
+    senderId(event) ??
+    asId(ctx.senderId) ??
+    asId((ctx.channelContext as Record<string, unknown> | undefined)?.sender) ??
+    asId((ctx.requester as Record<string, unknown> | undefined)?.senderId);
   const injectPrompt = guarded("prompt injection hook", async (raw, ctxRaw) => {
     const event = asRecord(raw);
     const ctx = asRecord(ctxRaw);
-    const userId =
-      senderId(event) ??
-      asId(ctx.senderId) ??
-      asId((ctx.channelContext as Record<string, unknown> | undefined)?.sender) ??
-      asId((ctx.requester as Record<string, unknown> | undefined)?.senderId);
-    const sessionKey = typeof event.sessionKey === "string" ? event.sessionKey : typeof ctx.sessionKey === "string" ? ctx.sessionKey : undefined;
+    const sessionKey = stringField(event.sessionKey) ?? stringField(ctx.sessionKey);
+    const trigger = stringField(ctx.trigger);
+    if (trigger === "heartbeat") {
+      // Heartbeats have no sender and (with isolatedSession) no history.
+      const runId = stringField(ctx.runId);
+      const served = runId ? heartbeatServed.delete(runId) : false;
+      const result = served ? {} : await core.heartbeatContext(sessionKey);
+      return {
+        appendSystemContext: HARD_CONSTRAINTS,
+        ...(result.appendContext ? { appendContext: result.appendContext } : {}),
+      };
+    }
+    const userId = promptUser(event, ctx);
+    if (trigger !== "cron") {
+      const history = Array.isArray(event.messages) ? [...event.messages] : [];
+      const current = stringField(event.currentUserMessage);
+      if (current) history.push({ role: "user", content: current });
+      await core.recordConversation(history, { ...(sessionKey ? { sessionKey } : {}), ...(userId ? { userId } : {}) });
+    }
     const result = await core.beforeAgentReply(userId, sessionKey);
     return {
       ...(result.systemAppend ? { appendSystemContext: result.systemAppend } : {}),
@@ -174,6 +206,29 @@ function register(apiUnknown: unknown) {
     };
   });
   api.on?.("before_prompt_build", injectPrompt);
+  api.on?.(
+    "heartbeat_prompt_contribution",
+    guarded("heartbeat context hook", async (raw, ctxRaw) => {
+      const event = asRecord(raw);
+      const ctx = asRecord(ctxRaw);
+      const result = await core.heartbeatContext(stringField(event.sessionKey) ?? stringField(ctx.sessionKey));
+      markServed(stringField(ctx.runId));
+      return result.appendContext ? { appendContext: result.appendContext } : {};
+    }),
+  );
+  api.on?.(
+    "agent_end",
+    guarded("conversation snapshot", async (raw, ctxRaw) => {
+      const event = asRecord(raw);
+      const ctx = asRecord(ctxRaw);
+      const trigger = stringField(ctx.trigger);
+      if (trigger === "heartbeat" || trigger === "cron") return;
+      if (!Array.isArray(event.messages) || event.messages.length === 0) return;
+      const sessionKey = stringField(ctx.sessionKey);
+      const userId = promptUser(event, ctx);
+      await core.recordConversation(event.messages, { ...(sessionKey ? { sessionKey } : {}), ...(userId ? { userId } : {}) });
+    }),
+  );
   api.on?.(
     "before_reset",
     guarded("session reset", async () => {

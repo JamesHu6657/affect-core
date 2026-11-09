@@ -130,6 +130,13 @@ export type PluginConfig = {
   };
   l1?: { enabled?: boolean; maxRatePerHour?: number; timeoutMs?: number };
   proactive?: { enabled?: boolean; quietHours?: [string, string]; tz?: string };
+  heartbeatContext?: {
+    enabled?: boolean;
+    maxTurns?: number;
+    maxCharsPerTurn?: number;
+    maxTotalChars?: number;
+    maxAgeHours?: number;
+  };
 };
 
 export type InboundMessage = {

@@ -1,6 +1,6 @@
 {
   "name": "openclaw-affect-core",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "type": "module",
   "description": "OpenClaw affect-core v0.3: pet-like sustainable cultivation plus an inertial affect layer.",
