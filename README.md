@@ -1,5 +1,8 @@
 # Affect Core 宠物养成版（v0.3.3）
 
+> **注意：现网不是这条线。** OpenClaw 上实际运行的是 0.7.x，代码在私有仓库 `JamesHu6657/openclaw-plugins` 的 `affect-core/`（dist 构建）。本仓库是 0.3.x 旧线；a913032 是旧线上的心跳上下文修复，同样的修复已移植为 openclaw-plugins 的 affect-core 0.7.7（af6122c）。不要把本仓库部署到现网，会降级。
+
+
 仓库：https://github.com/JamesHu6657/affect-core  
 
 **还没部署到 OpenClaw 现网。** 现网仍是 v0.2。
